@@ -10,7 +10,7 @@
     </settings>
 
     <tasks>
-        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL">
+        <task enable="false" description="Copy Servers from Device42 to FreshService using DOQL">
             <api>
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
@@ -75,7 +75,7 @@
             </mapping>
         </task>
 
-        <task enable="false" description="Delete Servers from FreshService">
+        <task enable="true" description="Delete Servers from FreshService">
             <api>
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server" delete="true"/>
