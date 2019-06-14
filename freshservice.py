@@ -51,7 +51,7 @@ class FreshService(object):
             is_getting_exist = True
 
         if not is_getting_exist and self.last_time_call_api is not None and (
-            now - self.last_time_call_api).total_seconds() < self.period_call_api:
+                    now - self.last_time_call_api).total_seconds() < self.period_call_api:
             time.sleep(self.period_call_api - (now - self.last_time_call_api).total_seconds())
 
         url = "%s/%s" % (self.base_url, path)
@@ -105,8 +105,8 @@ class FreshService(object):
             path += '/'
         return self._send("PUT", path, data=data)
 
-    def _delete(self, path):
-        return self._send("DELETE", path)
+    def _delete(self, path, data=None):
+        return self._send("DELETE", path, data)
 
     def _log(self, message, level="DEBUG"):
         if self.logger:
@@ -201,15 +201,18 @@ class FreshService(object):
         path = "/api/v2/%s" % model
         models = self.request(path, "GET", model)
         for model in models:
-            if "name" in model and model["name"] is not None and name is not None and model[
-                "name"].lower() == name.lower():
+            if "name" in model and model["name"] is not None and name is not None and \
+                            model["name"].lower() == name.lower():
                 return model["id"]
 
         return None
 
     def insert_and_get_id_by_name(self, model, name, asset_type_id):
         path = "/api/v2/%s" % model
-        data = {"name": name, "asset_type_id": asset_type_id}
+        if asset_type_id is not None:
+            data = {"name": name, "asset_type_id": asset_type_id}
+        else:
+            data = {"name": name}
         models = self._post(path, data)
         for key in models:
             if model in self.server_data:
@@ -239,3 +242,39 @@ class FreshService(object):
             self.server_data[model] = models
             return models
         return []
+
+    def get_relationship_type_by_content(self, forward, backward):
+        path = "/cmdb/relationship_types/list.json"
+        relationships = None
+        if "relationships" in self.server_data:
+            relationships = self.server_data["relationships"]
+
+        if relationships is None:
+            relationships = self._get(path)
+            self.server_data["relationships"] = relationships
+
+        for relationship in relationships:
+            if relationship["forward_relationship"] == forward and relationship["backward_relationship"] == backward:
+                return relationship
+
+        return None
+
+    def get_relationships_by_id(self, asset_id):
+        path = "/cmdb/items/%d/relationships.json" % asset_id
+        result = self._get(path)
+        if "relationships" in result:
+            return result["relationships"]
+        return []
+
+    def insert_relationship(self, asset_id, data):
+        path = "/cmdb/items/%d/associate.json" % asset_id
+        relationships = self._post(path, data)
+        if len(relationships) > 0:
+            return relationships[0]["id"]
+
+        return -1
+
+    def detach_relationship(self, asset_id, relationship_id):
+        path = "/cmdb/items/%d/detach_relationship.json" % asset_id
+
+        return self._delete(path, {"relationship_id": relationship_id})

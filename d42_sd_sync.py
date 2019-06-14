@@ -90,17 +90,23 @@ def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=Non
     if "@target-foregin-key" in map_info:
         value = freshservice.get_id_by_name(map_info["@target-foregin"], d42_value)
         if b_add and value is None and "@not-null" in map_info and map_info[
-            "@not-null"] and "@required" in map_info and map_info["@required"]:
-            name = d42_value
-            id = freshservice.insert_and_get_id_by_name(map_info["@target-foregin"], name, asset_type_id)
-            d42_value = id
+            "@not-null"]:  #  and "@required" in map_info and map_info["@required"]
+            if d42_value is not None:
+                name = d42_value
+                if map_info["@target-foregin"] == "vendors":
+                    new_id = freshservice.insert_and_get_id_by_name(map_info["@target-foregin"], name, None)
+                else:
+                    new_id = freshservice.insert_and_get_id_by_name(map_info["@target-foregin"], name, asset_type_id)
+                d42_value = new_id
+            else:
+                d42_value = None
         else:
             d42_value = value
 
     return d42_value
 
 
-def update_objects_from_server(sources, _target, mapping, doql=False):
+def update_objects_from_server(sources, _target, mapping):
     global freshservice
 
     logger.info("Getting all existing devices in FS.")
@@ -142,9 +148,12 @@ def update_objects_from_server(sources, _target, mapping, doql=False):
                 is_valid = True
                 if value is not None and "@min-length" in map_info and len(value) < map_info["@min-length"]:
                     is_valid = False
+                    if value == "" and "@set-space" in map_info and map_info["@set-space"]:
+                        is_valid = True
+                        value = " " * map_info["@min-length"]
                 if value is None and "@not-null" in map_info and map_info["@not-null"]:
                     is_valid = False
-                if not is_valid and "@required" in map_info and map_info["@required"]:
+                if not is_valid and "@target-foregin-key" in map_info:
                     value = get_map_value_from_device42(source, map_info, True, data["asset_type_id"])
                     if value is not None:
                         is_valid = True
@@ -203,6 +212,149 @@ def delete_objects_from_server(sources, _target, mapping):
                 logger.exception("Error (%s) deleting device %s" % (type(e), existing_object["name"]))
 
 
+def create_relationships_from_affinity_group(sources, _target, mapping):
+    global freshservice
+
+    logger.info("Getting all existing devices in FS.")
+    existing_objects = freshservice.request("api/v2/assets" + "?include=type_fields", "GET", _target["@model"])
+
+    logger.info("finished getting all existing devices in FS.")
+
+    logger.info("Getting relationship type in FS.")
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
+                                                                      mapping["@backward-relationship"])
+    logger.info("finished getting relationship type in FS.")
+    if relationship_type is None:
+        logger.info("There is not relationship type in FS. (%s - %s)" % (
+        mapping["@forward-relationship"], mapping["@backward-relationship"]))
+        return
+
+    for source in sources:
+        try:
+            logger.info("Processing %s - %s." % (source[mapping["@key"]], source[mapping["@target-key"]]))
+            primary_asset = find_object_by_name(existing_objects, source[mapping["@key"]])
+            secondary_asset = find_object_by_name(existing_objects, source[mapping["@target-key"]])
+
+            if primary_asset is None:
+                logger.info("There is no dependent asset(%s) in FS." % source[mapping["@key"]])
+                continue
+
+            if secondary_asset is None:
+                logger.info("There is no dependency asset(%s) in FS." % source[mapping["@target-key"]])
+                continue
+
+            relationships = freshservice.get_relationships_by_id(primary_asset["display_id"])
+            exist = False
+            for relationship in relationships:
+                if relationship["relationship_type_id"] == relationship_type["id"]:
+                    if relationship["config_item"]["display_id"] == secondary_asset["display_id"]:
+                        exist = True
+                        break
+            if exist:
+                logger.info("There is already relationship in FS.")
+                continue
+
+            data = dict()
+            data["type"] = "config_items"
+            data["type_id"] = [secondary_asset["display_id"]]
+            data["relationship_type_id"] = relationship_type["id"]
+            data["relationship_type"] = "forward_relationship"
+            logger.info("adding relationship %s" % source[mapping["@key"]])
+            new_relationship_id = freshservice.insert_relationship(primary_asset["display_id"], data)
+            logger.info("added new relationship %d" % new_relationship_id)
+        except Exception as e:
+            logger.exception("Error (%s) creating relationship %s" % (type(e), source[mapping["@key"]]))
+
+
+def delete_relationships_from_affinity_group(sources, _target, mapping):
+    global freshservice
+    logger.info("Getting all existing devices in FS.")
+    existing_objects = freshservice.request("api/v2/assets" + "?include=type_fields", "GET", _target["@model"])
+
+    logger.info("finished getting all existing devices in FS.")
+
+    logger.info("Getting relationship type in FS.")
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
+                                                                      mapping["@backward-relationship"])
+    logger.info("finished getting relationship type in FS.")
+    if relationship_type is None:
+        logger.info("There is not relationship type in FS. (%s - %s)" % (
+        mapping["@forward-relationship"], mapping["@backward-relationship"]))
+        return
+
+    for source in sources:
+        try:
+            logger.info("Processing %s - %s." % (source[mapping["@key"]], source[mapping["@target-key"]]))
+            primary_asset = find_object_by_name(existing_objects, source[mapping["@key"]])
+            secondary_asset = find_object_by_name(existing_objects, source[mapping["@target-key"]])
+
+            if primary_asset is None:
+                logger.info("There is no dependent asset(%s) in FS." % source[mapping["@key"]])
+                continue
+
+            if secondary_asset is None:
+                logger.info("There is no dependency asset(%s) in FS." % source[mapping["@target-key"]])
+                continue
+
+            relationships = freshservice.get_relationships_by_id(primary_asset["display_id"])
+            remove_relationship = None
+            for relationship in relationships:
+                if relationship["relationship_type_id"] == relationship_type["id"]:
+                    if relationship["config_item"]["display_id"] == secondary_asset["display_id"]:
+                        remove_relationship = relationship
+                        break
+            if remove_relationship is None:
+                logger.info("There is not relationship in FS.")
+                continue
+
+            freshservice.detach_relationship(primary_asset["display_id"], remove_relationship["id"])
+            logger.info("detached relationship %d" % remove_relationship["id"])
+        except Exception as e:
+            logger.exception("Error (%s) creating relationship %s" % (type(e), source[mapping["@key"]]))
+
+
+def create_relationships_from_business_app(sources, _target, mapping):
+    create_relationships_from_affinity_group(sources, _target, mapping)
+
+
+def delete_relationships_from_business_app(sources, _target, mapping):
+    global freshservice
+    logger.info("Getting all existing devices in FS.")
+    existing_objects = freshservice.request("api/v2/assets" + "?include=type_fields", "GET", _target["@model"])
+
+    logger.info("finished getting all existing devices in FS.")
+
+    logger.info("Getting relationship type in FS.")
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
+                                                                      mapping["@backward-relationship"])
+    logger.info("finished getting relationship type in FS.")
+    if relationship_type is None:
+        logger.info("There is not relationship type in FS. (%s - %s)" % (
+        mapping["@forward-relationship"], mapping["@backward-relationship"]))
+        return
+
+    for existing_object in existing_objects:
+        logger.info("Checking relationship of asset(%s)." % existing_object["name"])
+        relationships = freshservice.get_relationships_by_id(existing_object["display_id"])
+        for relationship in relationships:
+            if relationship["relationship_type_id"] == relationship_type["id"] and \
+                            relationship["relationship_type"] == "forward_relationship":
+                remove_relationship = relationship
+                target_display_id = relationship["config_item"]["display_id"]
+                for source in sources:
+                    if source[mapping["@key"]] == existing_object["name"]:
+                        secondary_asset = find_object_by_name(existing_objects, source[mapping["@target-key"]])
+                        if target_display_id == secondary_asset["display_id"]:
+                            remove_relationship = None
+                            break
+
+                if remove_relationship is None:
+                    continue
+
+                freshservice.detach_relationship(existing_object["display_id"], remove_relationship["id"])
+                logger.info("detached relationship %d" % remove_relationship["id"])
+
+
 def parse_config(url):
     config = eTree.parse(url)
     meta = config.getroot()
@@ -239,11 +391,22 @@ def task_execute(task, device42):
     else:
         sources = device42.request(source_url, method, _resource["@model"])
 
-    if "@delete" in _target and _target["@delete"]:
-        delete_objects_from_server(sources, _target, mapping)
-        return
+    if _type == "affinity_group":
+        if "@delete" in _target and _target["@delete"]:
+            delete_relationships_from_affinity_group(sources, _target, mapping)
+        else:
+            create_relationships_from_affinity_group(sources, _target, mapping)
+    elif _type == "business_app":
+        if "@delete" in _target and _target["@delete"]:
+            delete_relationships_from_business_app(sources, _target, mapping)
+        else:
+            create_relationships_from_business_app(sources, _target, mapping)
+    else:
+        if "@delete" in _target and _target["@delete"]:
+            delete_objects_from_server(sources, _target, mapping)
+            return
 
-    update_objects_from_server(sources, _target, mapping, doql=False)
+        update_objects_from_server(sources, _target, mapping)
 
 
 def main():
