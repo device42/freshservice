@@ -40,7 +40,7 @@ After configuring the fields to map as needed, the script should be ready to run
 * FreshService API Limit is 1000 calls per hour (https://api.freshservice.com/#ratelimit)
 * Due to the nature of FreshService rate limits, large inventories may take extended periods of time to migrate
 
-Please use the following table as a reference only, actual times may vary dues to request limit cooldowns and other internal API calls
+Please use the following table as a reference only, actual times may vary due to request limit cooldowns and other internal API calls
 
 |# of Devices| Migration Time|
 |------------|---------------|
