@@ -35,6 +35,22 @@ It is very important to adjust the list of default values in accordance between 
 
 After configuring the fields to map as needed, the script should be ready to run. 
 
+### Gotchas
+-----------------------------
+* FreshService API Limit is 1000 calls per hour (https://api.freshservice.com/#ratelimit)
+* Due to the nature of FreshService rate limits, large inventories may take extended periods of time to migrate
+
+Please use the following table as a reference only, actual times may vary dues to request limit cooldowns and other internal API calls
+
+|# of Devices| Migration Time|
+|------------|---------------|
+| 100   | 6 min |
+| 1,000 | 1 hr |
+| 5,000 | 5 hrs | 
+|10,000 | 10 hrs |
+|24,000 | 24 hrs |
+
+
 ### Compatibility
 -----------------------------
 * Script runs on Linux and Windows
