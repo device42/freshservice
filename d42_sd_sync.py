@@ -59,7 +59,39 @@ def get_asset_type_field(asset_type_fields, map_info):
     return None
 
 
+def clean_os_name(original_os_name):
+    """"
+    accepts OS name from D42 and changes it to a OS name that
+    can be mapped to FreshService
+    :param:  original_os
+    :return: accepted os name
+    example:
+    input: Canonical Ubuntu
+    output: Linux
+    """
+
+    if original_os_name is None:
+        return None
+
+    accepted_operating_systems = {
+        'Windows': ['windows', 'microsoft'],
+        'Linux': ['linux', 'ubuntu', 'centos', 'oracle', 'freebsd', 'suse', 'debian', 'fedora', 'opensuse'],
+        'Mac': ['mac', 'os x', 'macos', 'ios'],
+        'Solaris': ['solaris'],
+        'Aix': ['aix']
+        }
+
+    for os_key, alternate_os_names in accepted_operating_systems.items():
+        for alternate_name in alternate_os_names:
+            if alternate_name in original_os_name.lower():
+                return os_key.title()
+
+
 def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=None):
+    # D42-14245
+    if map_info["@resource"] == 'os_name':
+        source['os_name'] = clean_os_name(source['os_name'])
+
     d42_value = source[map_info["@resource"]]
     if d42_value is None and "@resource-secondary" in map_info:
         d42_value = source[map_info["@resource-secondary"]]
