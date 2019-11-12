@@ -81,15 +81,18 @@ def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=Non
                 items = [map_info["value-mapping"]["item"]]
 
             # D42-14245 - Modify FreshService Script to map OS information
-            if map_info["@resource"] == 'os_name':
-                for item in items:
-                    try:
-                        if d42_value.lower() in item["@key"].split(', '):
+            for item in items:
+                try:
+                    if len(item["@key"].split(', ')) > 1:  # if key is list
+                        try:
+                            if d42_value.lower() in item["@key"].split(', '):
+                                d42_val = item["@value"]
+                        except AttributeError as e:  # D42 value was none so cannot be lower cased
+                            d42_val = None
+                    else:  # default action
+                        if item["@key"] == d42_value:
                             d42_val = item["@value"]
-                    except AttributeError:  # D42 value was none so cannot be lower cased
-                        d42_val = None
-            else:
-                for item in items:
+                except AttributeError as e:  # key was a boolean value and could not be split
                     if item["@key"] == d42_value:
                         d42_val = item["@value"]
 
