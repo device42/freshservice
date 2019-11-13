@@ -85,8 +85,11 @@ def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=Non
                 try:
                     if len(item["@key"].split(', ')) > 1:  # if key is list
                         try:
-                            if d42_value.lower() in item["@key"].split(', '):
-                                d42_val = item["@value"]
+                            alternate_os_names = item["@key"].split(', ')
+                            for alternate_name in alternate_os_names:
+                                if alternate_name in d42_value.lower():
+                                    d42_val = item["@value"]
+                                    break
                         except AttributeError as e:  # D42 value was none so cannot be lower cased
                             d42_val = None
                     else:  # default action
