@@ -83,9 +83,9 @@ def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=Non
             # D42-14245 - Modify FreshService Script to map OS information
             for item in items:
                 try:
-                    if len(item["@key"].split(', ')) > 1:  # if key is list
+                    if len(item["@key"].split(',')) > 1:  # if key is list
                         try:
-                            alternate_os_names = item["@key"].split(', ')
+                            alternate_os_names = [alternate_name.strip().lower() for alternate_name in item["@key"].split(',')]
                             for alternate_name in alternate_os_names:
                                 if alternate_name in d42_value.lower():
                                     d42_val = item["@value"]

@@ -54,7 +54,7 @@
                        target-header="Computer" not-null="true"/>
                 <field resource="os_name" source-type="string" target="os" target-type="string"
                        target-header="Computer" not-null="true">
-                    <!-- alt OS names must lower case and delimited by a comma and a single space character -->
+                    <!-- alt OS names must delimited by a comma-->
                     <value-mapping>
                         <item key="linux, ubuntu, centos, redhat, oracle, freebsd, suse, debian, fedora, opensuse" value="Linux"/>
                         <item key="windows, microsoft" value="Windows"/>
