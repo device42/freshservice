@@ -61,8 +61,10 @@ def get_asset_type_field(asset_type_fields, map_info):
 
 def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=None):
     d42_value = source[map_info["@resource"]]
+
     if d42_value is None and "@resource-secondary" in map_info:
         d42_value = source[map_info["@resource-secondary"]]
+
     if "@is-array" in map_info and map_info["@is-array"]:
         d42_vals = d42_value
         d42_value = None
@@ -77,9 +79,26 @@ def get_map_value_from_device42(source, map_info, b_add=False, asset_type_id=Non
                 items = map_info["value-mapping"]["item"]
             else:
                 items = [map_info["value-mapping"]["item"]]
+
+            # D42-14245 - Modify FreshService Script to map OS information
             for item in items:
-                if item["@key"] == d42_value:
-                    d42_val = item["@value"]
+                try:
+                    if len(item["@key"].split(',')) > 1:  # if key is list
+                        try:
+                            alternate_os_names = [alternate_name.strip().lower() for alternate_name in item["@key"].split(',')]
+                            for alternate_name in alternate_os_names:
+                                if alternate_name in d42_value.lower():
+                                    d42_val = item["@value"]
+                                    break
+                        except AttributeError as e:  # D42 value was none so cannot be lower cased
+                            d42_val = None
+                    else:  # default action
+                        if item["@key"] == d42_value:
+                            d42_val = item["@value"]
+                except AttributeError as e:  # key was a boolean value and could not be split
+                    if item["@key"] == d42_value:
+                        d42_val = item["@value"]
+
             if d42_val is None and "@default" in map_info["value-mapping"]:
                 d42_val = map_info["value-mapping"]["@default"]
 
