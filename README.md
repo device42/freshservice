@@ -93,4 +93,4 @@ We will support any issues you run into with the script and help answer any ques
 
 ### Version
 -----------------------------
-1.0.0.190411
+2.0.0.201021
