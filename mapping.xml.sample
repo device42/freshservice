@@ -9,14 +9,77 @@
                 pass="{pass}"/>
     </settings>
 
-    <tasks>
-        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL">
+<tasks>
+        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL v2_views">
             <api>
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
                 <resource model="Devices" target="device42" method="POST"
                           path="services/data/v1.0/query/"
-                          doql="select view_device_v1.*, t_cost.cost, view_vendor_v1.name as manufacturer, case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as hw_model, case WHEN view_device_v1.hz = 'MHz' and view_device_v1.cpupower is not null  THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END as cpuspeed, case WHEN view_device_v1.ram_size_type = 'MB' and view_device_v1.ram is not null  THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' and view_device_v1.ram is not null  THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END as ramsize, network.ip_address, network.hwaddress :: macaddr from view_device_v1 left join view_hardware_v1 on view_device_v1.hardware_fk = view_hardware_v1.hardware_pk left join  (select view_ipaddress_v1.device_fk,  max(view_ipaddress_v1.ip_address) as ip_address,  max(view_netport_v1.hwaddress) as hwaddress from view_ipaddress_v1 left join view_netport_v1 on view_ipaddress_v1.netport_fk = view_netport_v1.netport_pk where view_netport_v1.hwaddress is null or (view_netport_v1.hwaddress is not null and LENGTH(view_netport_v1.hwaddress)=12) group by view_ipaddress_v1.device_fk) network on view_device_v1.device_pk=network.device_fk left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk "
+                          doql="SELECT view_device_v2.*, t_cost.cost, view_vendor_v1.name AS manufacturer, CASE WHEN view_device_v2.TYPE = 'Virtual' THEN view_device_v2.TYPE WHEN view_device_v2.TYPE = 'Cluster' THEN view_device_v2.TYPE ELSE Coalesce(view_hardware_v2.name, view_device_v2.TYPE) END AS hw_model, CASE WHEN view_device_v2.hz = 'MHz' AND view_device_v2.cpu_speed IS NOT NULL THEN view_device_v2.cpu_speed / 1000 ELSE view_device_v2.cpu_speed END AS cpu_speed, CASE WHEN view_device_v2.ram_size_type = 'MB' AND view_device_v2.ram IS NOT NULL THEN view_device_v2.ram / 1024 WHEN view_device_v2.ram_size_type = 'TB' AND view_device_v2.ram IS NOT NULL THEN view_device_v2.ram * 1024 ELSE view_device_v2.ram END AS ramsize, view_device_v2.core_per_cpu * total_cpus as cpu_core, network.ip_address, network.hwaddress :: macaddr FROM view_device_v2 left join view_hardware_v2 ON view_device_v2.hardware_fk = view_hardware_v2.hardware_pk left join (SELECT view_ipaddress_v1.device_fk, Max(view_ipaddress_v1.ip_address) AS ip_address, Max(view_netport_v1.hwaddress) AS hwaddress FROM view_ipaddress_v1 left join view_netport_v1 ON view_ipaddress_v1.netport_fk = view_netport_v1.netport_pk WHERE view_netport_v1.hwaddress IS NULL OR ( view_netport_v1.hwaddress IS NOT NULL AND Length(view_netport_v1.hwaddress) = 12 ) GROUP BY view_ipaddress_v1.device_fk) network ON view_device_v2.device_pk = network.device_fk left join (SELECT device_fk, SUM(cost) AS cost FROM view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 ON purchaselineitem_fk = purchaselineitem_pk GROUP BY device_fk) t_cost ON t_cost.device_fk = device_pk left join view_vendor_v1 ON vendor_pk = vendor_fk"
+                        />
+            </api>
+
+            <mapping callback="from_d42" key="name" source="Devices">
+                <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
+                       target-header="Hardware">
+                    <value-mapping default="Missing">
+                        <item key="true" value="In Use"/>
+                    </value-mapping>
+                </field>
+                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
+                       target-header="General"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"/>
+                <field resource="type" source-type="string" target="asset_type_id" target-type="string"
+                       target-header="General"
+                       target-foregin="asset_types" target-foregin-key="name" target-field="asset_type_id">
+                    <value-mapping default="Server">
+                        <item key="Physical" value="Server"/>
+                        <item key="Virtual" value="Server"/>
+                        <item key="Cluster" value="Server"/>
+                        <item key="Unknown" value="Server"/>
+                    </value-mapping>
+                </field>
+                <field resource="notes" source-type="string" target="description" target-header="General"/>
+                <field resource="uuid" type="string" target="uuid"
+                       target-header="Computer" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="cost" type="float" target="cost"
+                       target-header="Cost" not-null="true" set-zero="true"/>
+                <field resource="ip_address" type="string" target="computer_ip_address"
+                       target-header="Computer" not-null="true" />
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Computer" not-null="true"/>
+                <field resource="os_name" source-type="string" target="os" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version_no" source-type="string" target="os_service_pack" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+
+                <field resource="cpu_speed" source-type="float" target="cpu_speed" target-type="float"
+                       target-header="Computer" not-null="true"/>
+                <field resource="cpu_core" source-type="integer" target="cpu_core_count" target-type="integer"
+                       not-null="true"
+                       target-header="Computer"/>
+                <field resource="hw_model" source-type="string" target="product" target-type="string"
+                       target-header="Hardware"
+                       target-foregin="products" target-foregin-key="name" not-null="true" required="True"/>
+                <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
+                       target-header="Hardware"
+                       min-length="1" max-length="255"/>
+                <field resource="ramsize" source-type="float" target="memory" target-type="float"
+                       target-header="Computer" not-null="true" />
+            </mapping>
+        </task>
+
+        <task enable="false" description="Copy Servers from Device42 to FreshService using DOQL v1_views">
+            <api>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
+                        asset-type="Server"/>
+                <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="SELECT view_device_v1.*, t_cost.cost, view_vendor_v1.name AS manufacturer, CASE WHEN view_device_v1.TYPE = 'Virtual' THEN view_device_v1.TYPE WHEN view_device_v1.TYPE = 'Cluster' THEN view_device_v1.TYPE ELSE Coalesce(view_hardware_v1.name, view_device_v1.TYPE) END AS hw_model, CASE WHEN view_device_v1.hz = 'MHz' AND view_device_v1.cpupower IS NOT NULL THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END AS cpuspeed, CASE WHEN view_device_v1.ram_size_type = 'MB' AND view_device_v1.ram IS NOT NULL THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' AND view_device_v1.ram IS NOT NULL THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END AS ramsize, view_device_v1.cpucount * view_device_v1.cpucore as total_cores, network.ip_address, network.hwaddress :: macaddr FROM view_device_v1 left join view_hardware_v1 ON view_device_v1.hardware_fk = view_hardware_v1.hardware_pk left join (SELECT view_ipaddress_v1.device_fk, Max(view_ipaddress_v1.ip_address) AS ip_address, Max(view_netport_v1.hwaddress) AS hwaddress FROM view_ipaddress_v1 left join view_netport_v1 ON view_ipaddress_v1.netport_fk = view_netport_v1.netport_pk WHERE view_netport_v1.hwaddress IS NULL OR ( view_netport_v1.hwaddress IS NOT NULL AND Length(view_netport_v1.hwaddress) = 12 ) GROUP BY view_ipaddress_v1.device_fk) network ON view_device_v1.device_pk = network.device_fk left join (SELECT device_fk, SUM(cost) AS cost FROM view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 ON purchaselineitem_fk = purchaselineitem_pk GROUP BY device_fk) t_cost ON t_cost.device_fk = device_pk left join view_vendor_v1 ON vendor_pk = vendor_fk"
                         />
             </api>
 
@@ -53,20 +116,15 @@
                 <field resource="hwaddress" type="string" target="mac_address"
                        target-header="Computer" not-null="true"/>
                 <field resource="os_name" source-type="string" target="os" target-type="string"
-                       target-header="Computer" not-null="true">
-                    <value-mapping>
-                        <item key="Ubuntu" value="Linux"/>
-                        <item key="Linux" value="Linux"/>
-                        <item key="Red Hat Enterprise Linux Server" value="Linux"/>
-                        <item key="Windows" value="Windows"/>
-                        <item key="Mac" value="Mac"/>
-                        <item key="Solaris" value="Solaris"/>
-                        <item key="Aix" value="Aix"/>
-                    </value-mapping>
-                </field>
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version_no" source-type="string" target="os_service_pack" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+
                 <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
                        target-header="Computer" not-null="true"/>
-                <field resource="cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                <field resource="total_cores" source-type="integer" target="cpu_core_count" target-type="integer"
                        not-null="true"
                        target-header="Computer"/>
                 <field resource="hw_model" source-type="string" target="product" target-type="string"
