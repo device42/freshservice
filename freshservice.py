@@ -12,15 +12,11 @@ class FreshServiceBaseException(Exception):
     pass
 
 
-class FreshServiceBadArgumentError(Exception):
-    pass
-
-
 class FreshServiceHTTPError(FreshServiceBaseException):
     pass
 
 
-class FreshServiceWrongRequest(FreshServiceHTTPError):
+class FreshServiceDuplicateSerialError(FreshServiceHTTPError):
     pass
 
 
@@ -36,10 +32,9 @@ class FreshService(object):
         self.base_url = "https://%s" % self.base
         self.headers = {}
         self.last_time_call_api = None
-        self.period_call_api = 4
+        self.period_call_api = 1
         self.api_call_count = 0
         self.asset_types = None
-        self.server_data = dict()
 
     def _send(self, method, path, data=None):
         """ General method to send requests """
@@ -50,9 +45,9 @@ class FreshService(object):
         if method == 'GET' and data is not None and "page" in data:
             is_getting_exist = True
 
-        if not is_getting_exist and self.last_time_call_api is not None and (
-                    now - self.last_time_call_api).total_seconds() < self.period_call_api:
-            time.sleep(self.period_call_api - (now - self.last_time_call_api).total_seconds())
+        # if not is_getting_exist and self.last_time_call_api is not None and (
+        #             now - self.last_time_call_api).total_seconds() < self.period_call_api:
+        #     time.sleep(self.period_call_api - (now - self.last_time_call_api).total_seconds())
 
         url = "%s/%s" % (self.base_url, path)
         params = None
@@ -79,6 +74,22 @@ class FreshService(object):
                     self._log("Throttling 1 min...")
                     time.sleep(60)
                     continue
+
+                if resp.status_code == 400:
+                    exception = None
+                    try:
+                        error_resp = resp.json()
+                        if error_resp["description"] == "Validation failed":
+                            for error in error_resp["errors"]:
+                                if error["field"] == "serial_number" and error["message"] == " must be unique":
+                                    exception = FreshServiceDuplicateSerialError("HTTP %s (%s) Error %s: %s\n request was %s" %
+                                                                (method, path, resp.status_code, resp.text, data))
+                                    break
+                    except Exception:
+                        pass
+
+                    if exception is not None:
+                        raise exception
 
                 raise FreshServiceHTTPError("HTTP %s (%s) Error %s: %s\n request was %s" %
                                             (method, path, resp.status_code, resp.text, data))
@@ -131,6 +142,21 @@ class FreshService(object):
         path = "api/v2/assets?include=type_fields&query=\"asset_type_id:%d\"" % asset_type_id
         assets = self._get(path)
         return assets["assets"]
+
+    def insert_software(self, data):
+        path = "api/v2/applications"
+        result = self._post(path, data)
+        return result["application"]["id"]
+
+    def update_software(self, data, id):
+        path = "api/v2/applications/%d" % id
+        result = self._put(path, data)
+        return result["application"]["id"]
+
+    def delete_software(self, id):
+        path = "api/v2/applications/%d" % id
+        result = self._delete(path)
+        return result
 
     def get_all_ci_types(self):
         if self.asset_types is not None:
@@ -215,18 +241,12 @@ class FreshService(object):
             data = {"name": name}
         models = self._post(path, data)
         for key in models:
-            if model in self.server_data:
-                self.server_data[model] += [models[key]]
-
             return models[key]["id"]
 
         return None
 
     def request(self, source_url, method, model):
         if method == "GET":
-            if model in self.server_data:
-                return self.server_data[model]
-
             models = []
             page = 1
             while True:
@@ -239,19 +259,15 @@ class FreshService(object):
                     break
 
                 page += 1
-            self.server_data[model] = models
+
             return models
         return []
 
     def get_relationship_type_by_content(self, forward, backward):
         path = "/cmdb/relationship_types/list.json"
         relationships = None
-        if "relationships" in self.server_data:
-            relationships = self.server_data["relationships"]
-
         if relationships is None:
             relationships = self._get(path)
-            self.server_data["relationships"] = relationships
 
         for relationship in relationships:
             if relationship["forward_relationship"] == forward and relationship["backward_relationship"] == backward:
@@ -278,3 +294,29 @@ class FreshService(object):
         path = "/cmdb/items/%d/detach_relationship.json" % asset_id
 
         return self._delete(path, {"relationship_id": relationship_id})
+
+    def get_installations_by_id(self, display_id):
+        path = "/api/v2/applications/%d/installations" % display_id
+
+        models = []
+        page = 1
+        while True:
+            result = self._get(path, data={"page": page})
+            if "installations" in result:
+                models += result["installations"]
+                if len(result["installations"]) == 0:
+                    break
+            else:
+                break
+
+            page += 1
+
+        return models
+
+    def insert_installation(self, display_id, data):
+        path = "/api/v2/applications/%d/installations" % display_id
+        installation = self._post(path, data)
+        if len(installation) > 0:
+            return installation['installation']["id"]
+
+        return -1

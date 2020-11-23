@@ -10,26 +10,194 @@
     </settings>
 
     <tasks>
-        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL">
+        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL v2" d42_min_version="16.19.00">
             <api>
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
-                          doql="select view_device_v1.*, t_cost.cost, view_vendor_v1.name as manufacturer, case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as hw_model, case WHEN view_device_v1.hz = 'MHz' and view_device_v1.cpupower is not null  THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END as cpuspeed, case WHEN view_device_v1.ram_size_type = 'MB' and view_device_v1.ram is not null  THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' and view_device_v1.ram is not null  THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END as ramsize, network.ip_address, network.hwaddress :: macaddr from view_device_v1 left join view_hardware_v1 on view_device_v1.hardware_fk = view_hardware_v1.hardware_pk left join  (select view_ipaddress_v1.device_fk,  max(view_ipaddress_v1.ip_address) as ip_address,  max(view_netport_v1.hwaddress) as hwaddress from view_ipaddress_v1 left join view_netport_v1 on view_ipaddress_v1.netport_fk = view_netport_v1.netport_pk where view_netport_v1.hwaddress is null or (view_netport_v1.hwaddress is not null and LENGTH(view_netport_v1.hwaddress)=12) group by view_ipaddress_v1.device_fk) network on view_device_v1.device_pk=network.device_fk left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk "
+                          doql="
+                                select view_device_v2.*,
+                                coalesce(view_device_v2.physicalsubtype, view_device_v2.virtualsubtype) as device_subtype,
+                                core_per_cpu * total_cpus as total_cpucore,
+                                t_cost.cost,
+                                view_vendor_v1.name as manufacturer,
+                                case WHEN view_device_v2.type = 'Virtual' THEN view_device_v2.type WHEN view_device_v2.type = 'Cluster' THEN view_device_v2.type ELSE coalesce(view_hardware_v2.name, view_device_v2.type) END as hw_model,
+                                case WHEN view_device_v2.hz = 'MHz' and view_device_v2.cpu_speed is not null  THEN view_device_v2.cpu_speed / 1000 ELSE view_device_v2.cpu_speed END as cpuspeed,
+                                case WHEN view_device_v2.ram_size_type = 'MB' and view_device_v2.ram is not null  THEN view_device_v2.ram / 1024 WHEN view_device_v2.ram_size_type = 'TB' and view_device_v2.ram is not null  THEN view_device_v2.ram * 1024 ELSE view_device_v2.ram END as ramsize,
+                                network_ip.ip_address, network_hw.hwaddress,
+                                CEIL(COALESCE(p.total_part_disk_size,
+                                                CASE
+                                                    WHEN view_device_v2.hard_disk_count IS NOT NULL AND
+                                                         view_device_v2.hard_disk_size IS NOT NULL AND
+                                                         view_device_v2.hard_disk_size_type IS NOT NULL THEN
+                                                            view_device_v2.hard_disk_count *
+                                                            CASE
+                                                                WHEN view_device_v2.hard_disk_size_type = 'GB' THEN view_device_v2.hard_disk_size
+                                                                WHEN view_device_v2.hard_disk_size_type = 'TB' THEN view_device_v2.hard_disk_size * 1024
+                                                                WHEN view_device_v2.hard_disk_size_type = 'PB' THEN view_device_v2.hard_disk_size * 1024 * 1024
+                                                                ELSE NULL
+                                                            END
+                                                    ELSE NULL
+                                                END)) AS disk_size
+                                from view_device_v2 left join view_hardware_v2 on view_device_v2.hardware_fk = view_hardware_v2.hardware_pk left join  (select view_ipaddress_v1.device_fk,  string_agg(host(view_ipaddress_v1.ip_address)::character varying, ', ' order by view_ipaddress_v1.ip_address) as ip_address from view_ipaddress_v1 group by view_ipaddress_v1.device_fk) network_ip on view_device_v2.device_pk=network_ip.device_fk
+                                left join (select device_fk, string_agg(
+                                    CASE
+                                        WHEN LENGTH(TRIM(view_netport_v1.hwaddress)) = 12
+                                        THEN CONCAT_WS(':',left(TRIM(view_netport_v1.hwaddress),2), substring(TRIM(view_netport_v1.hwaddress),3,2), substring(TRIM(view_netport_v1.hwaddress),5,2), substring(TRIM(view_netport_v1.hwaddress),7,2), substring(TRIM(view_netport_v1.hwaddress),9,2), right(TRIM(view_netport_v1.hwaddress),2))
+                                        ELSE
+                                            view_netport_v1.hwaddress
+                                        END, ', ' order by view_netport_v1.hwaddress) as hwaddress from view_netport_v1 where (view_netport_v1.hwaddress is not null AND LENGTH(TRIM(view_netport_v1.hwaddress)) > 0) group by view_netport_v1.device_fk) network_hw on view_device_v2.device_pk=network_hw.device_fk
+                                    left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk
+                                LEFT OUTER JOIN (
+                                   SELECT p.device_fk,
+                                     SUM(p.pcount *
+                                         CASE
+                                           WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
+                                           WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
+                                           WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
+                                           ELSE NULL
+                                         END) AS total_part_disk_size
+                                     FROM view_part_v1 p
+                                     INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
+                                     WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
+                                     GROUP BY p.device_fk
+                                 ) AS p ON view_device_v2.device_pk = p.device_fk
+                               "
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Devices">
+            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.last_edited>'%s'">
                 <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
                        target-header="Hardware">
-                    <value-mapping default="Missing">
+                    <value-mapping default="Retired">
                         <item key="true" value="In Use"/>
                     </value-mapping>
                 </field>
                 <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
-                       target-header="General"/>
-                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"/>
+                       target-header="General" not-null="true" min-length="1" max-length="255"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248"/>
+                <field resource="type" source-type="string" target="asset_type_id" target-type="string"
+                       target-header="General"
+                       target-foregin="asset_types" target-foregin-key="name" target-field="asset_type_id">
+                    <value-mapping default="Server">
+                        <item key="Physical" value="Server"/>
+                        <item key="Virtual" value="Server"/>
+                        <item key="Cluster" value="Server"/>
+                        <item key="Unknown" value="Server"/>
+                    </value-mapping>
+                </field>
+                <field resource="notes" source-type="string" target="description" target-header="General"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+                <field resource="uuid" type="string" target="uuid"
+                       target-header="Computer" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="cost" type="float" target="cost"
+                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
+                <field resource="ip_address" type="string" target="computer_ip_address"
+                       target-header="Computer" not-null="true" max-length="255"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Computer" not-null="true" max-length="255"/>
+                <field resource="os_name" source-type="string" target="os" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
+                       target-header="Computer" not-null="true"/>
+                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                       not-null="true"
+                       target-header="Computer"/>
+                <field resource="hw_model" source-type="string" target="product" target-type="string"
+                       target-header="Hardware"
+                       target-foregin="products" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
+                <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
+                       target-header="Hardware" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <field resource="ramsize" source-type="float" target="memory" target-type="float"
+                       target-header="Computer" not-null="true" />
+                <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
+                       target-header="Computer" not-null="true" />
+            </mapping>
+            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.name='%s'">
+                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
+                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
+                <field resource="device_subtype" source-type="string" display-name="Device Subtype"/>
+            </unmapping>
+            <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
+        </task>
+
+        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL v1" d42_max_version="16.18.02">
+            <api>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
+                        asset-type="Server"/>
+                <resource model="Devices" target="device42" method="POST"
+                          doql="
+                                select view_device_v1.*,
+                                cpucount * cpucore as total_cpucore,
+                                t_cost.cost,
+                                view_vendor_v1.name as manufacturer,
+                                case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as hw_model,
+                                case WHEN view_device_v1.hz = 'MHz' and view_device_v1.cpupower is not null  THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END as cpuspeed,
+                                case WHEN view_device_v1.ram_size_type = 'MB' and view_device_v1.ram is not null  THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' and view_device_v1.ram is not null  THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END as ramsize,
+                                network_ip.ip_address, network_hw.hwaddress,
+                                CEIL(COALESCE(p.total_part_disk_size,
+                                                CASE
+                                                    WHEN view_device_v1.hard_disk_count IS NOT NULL AND
+                                                         view_device_v1.hard_disk_size IS NOT NULL AND
+                                                         view_device_v1.hard_disk_size_type IS NOT NULL THEN
+                                                            view_device_v1.hard_disk_count *
+                                                            CASE
+                                                                WHEN view_device_v1.hard_disk_size_type = 'GB' THEN view_device_v1.hard_disk_size
+                                                                WHEN view_device_v1.hard_disk_size_type = 'TB' THEN view_device_v1.hard_disk_size * 1024
+                                                                WHEN view_device_v1.hard_disk_size_type = 'PB' THEN view_device_v1.hard_disk_size * 1024 * 1024
+                                                                ELSE NULL
+                                                            END
+                                                    ELSE NULL
+                                                END)) AS disk_size
+                                from view_device_v1 left join view_hardware_v1 on view_device_v1.hardware_fk = view_hardware_v1.hardware_pk left join  (select view_ipaddress_v1.device_fk,  string_agg(host(view_ipaddress_v1.ip_address)::character varying, ', ' order by view_ipaddress_v1.ip_address) as ip_address from view_ipaddress_v1 group by view_ipaddress_v1.device_fk) network_ip on view_device_v1.device_pk=network_ip.device_fk
+                                left join (select device_fk, string_agg(
+                                    CASE
+                                        WHEN LENGTH(TRIM(view_netport_v1.hwaddress)) = 12
+                                        THEN CONCAT_WS(':',left(TRIM(view_netport_v1.hwaddress),2), substring(TRIM(view_netport_v1.hwaddress),3,2), substring(TRIM(view_netport_v1.hwaddress),5,2), substring(TRIM(view_netport_v1.hwaddress),7,2), substring(TRIM(view_netport_v1.hwaddress),9,2), right(TRIM(view_netport_v1.hwaddress),2))
+                                        ELSE
+                                            view_netport_v1.hwaddress
+                                        END, ', ' order by view_netport_v1.hwaddress) as hwaddress from view_netport_v1 where (view_netport_v1.hwaddress is not null AND LENGTH(TRIM(view_netport_v1.hwaddress)) > 0) group by view_netport_v1.device_fk) network_hw on view_device_v1.device_pk=network_hw.device_fk
+                                    left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk
+                                LEFT OUTER JOIN (
+                                   SELECT p.device_fk,
+                                     SUM(p.pcount *
+                                         CASE
+                                           WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
+                                           WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
+                                           WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
+                                           WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
+                                           ELSE NULL
+                                         END) AS total_part_disk_size
+                                     FROM view_part_v1 p
+                                     INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
+                                     WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
+                                     GROUP BY p.device_fk
+                                 ) AS p ON view_device_v1.device_pk = p.device_fk
+                                "
+                        />
+            </api>
+
+            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.last_edited>'%s'">
+                <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
+                       target-header="Hardware">
+                    <value-mapping default="Retired">
+                        <item key="true" value="In Use"/>
+                    </value-mapping>
+                </field>
+                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
+                       target-header="General" not-null="true" min-length="1" max-length="255"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248"/>
                 <field resource="type" source-type="string" target="asset_type_id" target-type="string"
                        target-header="General"
                        target-foregin="asset_types" target-foregin-key="name" target-field="asset_type_id">
@@ -42,42 +210,42 @@
                         <item key="Other" value="Server"/>
                     </value-mapping>
                 </field>
-                <field resource="notes" source-type="string" target="description" target-header="General"/>
+                <field resource="notes" source-type="string" target="description" target-header="General"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
                 <field resource="uuid" type="string" target="uuid"
                        target-header="Computer" not-null="true" set-space="true"
                        min-length="1" max-length="255"/>
                 <field resource="cost" type="float" target="cost"
-                       target-header="Cost" not-null="true" set-zero="true"/>
+                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
                 <field resource="ip_address" type="string" target="computer_ip_address"
-                       target-header="Computer" not-null="true" />
+                       target-header="Computer" not-null="true" max-length="255"/>
                 <field resource="hwaddress" type="string" target="mac_address"
-                       target-header="Computer" not-null="true"/>
+                       target-header="Computer" not-null="true" max-length="255"/>
                 <field resource="os_name" source-type="string" target="os" target-type="string"
-                       target-header="Computer" not-null="true">
-                    <value-mapping>
-                        <item key="Ubuntu" value="Linux"/>
-                        <item key="Linux" value="Linux"/>
-                        <item key="Red Hat Enterprise Linux Server" value="Linux"/>
-                        <item key="Windows" value="Windows"/>
-                        <item key="Mac" value="Mac"/>
-                        <item key="Solaris" value="Solaris"/>
-                        <item key="Aix" value="Aix"/>
-                    </value-mapping>
-                </field>
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
                 <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
                        target-header="Computer" not-null="true"/>
-                <field resource="cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
                        not-null="true"
                        target-header="Computer"/>
                 <field resource="hw_model" source-type="string" target="product" target-type="string"
                        target-header="Hardware"
-                       target-foregin="products" target-foregin-key="name" not-null="true" required="True"/>
+                       target-foregin="products" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
                 <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
-                       target-header="Hardware"
-                       min-length="1" max-length="255"/>
+                       target-header="Hardware" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
                 <field resource="ramsize" source-type="float" target="memory" target-type="float"
                        target-header="Computer" not-null="true" />
+                <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
+                       target-header="Computer" not-null="true" />
             </mapping>
+            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.name='%s'">
+                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
+                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
+            </unmapping>
+            <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
         </task>
 
         <task enable="false" description="Delete Servers from FreshService">
@@ -90,12 +258,54 @@
             <mapping callback="from_d42" key="name" source="Devices"/>
         </task>
 
-        <task enable="false" type="affinity_group" description="Create Relationship from Affinity Groups">
+        <task enable="true" type="software" description="Copy Softwares from Device42 to FreshService using DOQL">
+            <api>
+                <target model="applications" target="freshservice" method="POST" update_method="PUT" path="api/v2/applications" asset-type="Application"/>
+                <resource model="Softwares" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="select * from (select trim(name) as name, min(view_software_v1.software_type) as software_type, min(view_software_v1.notes) as notes, 'desktop' as application_type, min(view_software_v1.software_type) as category, min(last_changed) as last_changed from view_software_v1 group by trim(name)) a"
+                        />
+            </api>
+            <mapping callback="from_d42" key="name" source="Softwares" doql-suffix=" where last_changed>'%s'">
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General" max-length="255"/>
+                <field resource="notes" source-type="string" target="notes" target-type="string" target-header="General" max-length="2000"/>
+                <field resource="software_type" source-type="string" target="status" target-type="string"
+                       target-header="General">
+                    <value-mapping default="null">
+                        <item key="managed" value="managed"/>
+                        <item key="ignored" value="ignored"/>
+                        <item key="prohibited" value="blacklisted"/>
+                        <item key="unmanaged" value="ignored"/>
+                    </value-mapping>
+                </field>
+                <field resource="application_type" source-type="string" target="application_type" target-header="General"/>
+                <field resource="category" source-type="string" target="category" target-header="General" max-length="255"/>
+            </mapping>
+        </task>
+
+        <task enable="true" type="software_in_use" description="Create Software Install from Software In Use">
+            <api>
+                <target model="applications" target="freshservice" method="POST" path="api/v2/applications/{id}/installations"/>
+                <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="select view_device_v1.name as device_name, trim(view_software_v1.name) as software_name,  view_softwareinuse_v1.install_date, view_softwareinuse_v1.version from view_softwareinuse_v1  left join view_software_v1 on software_fk=software_pk left join view_device_v1 on device_fk=device_pk where view_softwareinuse_v1.device_fk is not null"
+                        />
+            </api>
+            <mapping callback="from_d42" doql-suffix=" and GREATEST(view_softwareinuse_v1.last_updated, view_device_v1.last_edited, view_software_v1.last_changed)>'%s'" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
+            </mapping>
+        </task>
+
+        <task enable="true" type="affinity_group" description="Create Relationship from Affinity Groups">
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
-                          doql="select dependent_device_fk, dependent_device_name, dependency_device_fk, dependency_device_name from view_deviceaffinity_v2 df1 where dependent_device_fk is not null and dependent_device_fk &lt;&gt; dependency_device_fk and effective_to is null"
+                          doql="
+                                select df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name
+                                from view_deviceaffinity_v2 df1
+                                inner join view_device_v1 d1 on df1.dependent_device_fk = d1.device_pk
+                                inner join view_device_v1 d2 on df1.dependency_device_fk = d2.device_pk
+                                where df1.dependent_device_fk is not null and df1.dependent_device_fk &lt;&gt; df1.dependency_device_fk and df1.effective_to is null
+                               "
                         />
             </api>
             <mapping callback="from_d42" key="dependent_device_name" forward-relationship="Depends On" backward-relationship="Used By" type="config_items" target-key="dependency_device_name">
@@ -107,7 +317,6 @@
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"
                         delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
                           doql="select distinct df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name from view_deviceaffinity_v2 df1 left outer join view_deviceaffinity_v2 df2 on df2.dependent_device_fk = df1.dependent_device_fk and df1.dependency_device_fk = df2.dependency_device_fk and df2.effective_to is null where df1.effective_to is not null and df1.dependent_device_fk is not null and df2.deviceaffinity_pk is null"
                         />
             </api>
@@ -115,15 +324,24 @@
             </mapping>
         </task>
 
-        <task enable="false" type="business_app" description="Create Relationship from Business Apps">
+        <task enable="true" type="business_app" description="Create Relationship from Business Apps">
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
-                          doql="select case connection_type when 'reversed' then  be2.device_fk else be1.device_fk end as dependent_device_fk, case connection_type when 'reversed' then  be2.element_name else be1.element_name end as dependent_device_name,        case connection_type when 'reversed' then  be1.device_fk else be2.device_fk end as dependency_device_fk,        case connection_type when 'reversed' then  be1.element_name else be2.element_name end as dependency_device_name from view_businessapplicationconnection_v1 bc join view_businessapplicationelement_v1 be1 on bc.from_businessapplicationelement_fk = be1.businessapplicationelement_pk join view_businessapplicationelement_v1 be2 on bc.to_businessapplicationelement_fk = be2.businessapplicationelement_pk"
+                          doql="
+                                select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
+                                       case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
+                                       case connection_type when 'reversed' then be1.device_fk else be2.device_fk end as dependency_device_fk,
+                                       case connection_type when 'reversed' then d1.name else d2.name end as dependency_device_name
+                                from view_businessapplicationconnection_v1 bc
+                                join view_businessapplicationelement_v1 be1 on bc.from_businessapplicationelement_fk = be1.businessapplicationelement_pk
+                                inner join view_device_v1 d1 on be1.device_fk = d1.device_pk
+                                join view_businessapplicationelement_v1 be2 on bc.to_businessapplicationelement_fk = be2.businessapplicationelement_pk
+                                inner join view_device_v1 d2 on be2.device_fk = d2.device_pk
+                               "
                         />
             </api>
-            <mapping callback="from_d42" key="dependent_device_name" forward-relationship="Send Data to" backward-relationship="Received Data from" type="config_items" target-key="dependency_device_name">
+            <mapping callback="from_d42" key="dependent_device_name" forward-relationship="Sends Data To" backward-relationship="Receives Data From" type="config_items" target-key="dependency_device_name">
             </mapping>
         </task>
 
@@ -131,8 +349,17 @@
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json" delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
-                          doql="select case connection_type when 'reversed' then  be2.device_fk else be1.device_fk end as dependent_device_fk, case connection_type when 'reversed' then  be2.element_name else be1.element_name end as dependent_device_name,        case connection_type when 'reversed' then  be1.device_fk else be2.device_fk end as dependency_device_fk,        case connection_type when 'reversed' then  be1.element_name else be2.element_name end as dependency_device_name from view_businessapplicationconnection_v1 bc join view_businessapplicationelement_v1 be1 on bc.from_businessapplicationelement_fk = be1.businessapplicationelement_pk join view_businessapplicationelement_v1 be2 on bc.to_businessapplicationelement_fk = be2.businessapplicationelement_pk"
+                          doql="
+                                select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
+                                       case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
+                                       case connection_type when 'reversed' then be1.device_fk else be2.device_fk end as dependency_device_fk,
+                                       case connection_type when 'reversed' then d1.name else d2.name end as dependency_device_name
+                                from view_businessapplicationconnection_v1 bc
+                                join view_businessapplicationelement_v1 be1 on bc.from_businessapplicationelement_fk = be1.businessapplicationelement_pk
+                                inner join view_device_v1 d1 on be1.device_fk = d1.device_pk
+                                join view_businessapplicationelement_v1 be2 on bc.to_businessapplicationelement_fk = be2.businessapplicationelement_pk
+                                inner join view_device_v1 d2 on be2.device_fk = d2.device_pk
+                               "
                         />
             </api>
             <mapping callback="from_d42" key="dependent_device_name" forward-relationship="Send Data to" backward-relationship="Received Data from" type="config_items" target-key="dependency_device_name">
