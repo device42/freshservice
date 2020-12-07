@@ -69,7 +69,7 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.last_edited>'%s'">
+            <mapping callback="from_d42" key="name" source="Devices">
                 <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
                        target-header="Hardware">
                     <value-mapping default="Retired">
@@ -121,15 +121,10 @@
                 <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
                        target-header="Computer" not-null="true" />
             </mapping>
-            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.name='%s'">
-                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
-                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
-                <field resource="device_subtype" source-type="string" display-name="Device Subtype"/>
-            </unmapping>
             <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
         </task>
 
-        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL v1" d42_max_version="16.18.02">
+        <task enable="false" description="Copy Servers from Device42 to FreshService using DOQL v1" d42_max_version="16.18.02">
             <api>
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
@@ -187,7 +182,7 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.last_edited>'%s'">
+            <mapping callback="from_d42" key="name" source="Devices">
                 <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
                        target-header="Hardware">
                     <value-mapping default="Retired">
@@ -241,10 +236,6 @@
                 <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
                        target-header="Computer" not-null="true" />
             </mapping>
-            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.name='%s'">
-                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
-                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
-            </unmapping>
             <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
         </task>
 
@@ -266,7 +257,7 @@
                           doql="select * from (select trim(name) as name, min(view_software_v1.software_type) as software_type, min(view_software_v1.notes) as notes, 'desktop' as application_type, min(view_software_v1.software_type) as category, min(last_changed) as last_changed from view_software_v1 group by trim(name)) a"
                         />
             </api>
-            <mapping callback="from_d42" key="name" source="Softwares" doql-suffix=" where last_changed>'%s'">
+            <mapping callback="from_d42" key="name" source="Softwares">
                 <field resource="name" source-type="string" target="name" target-type="string" target-header="General" max-length="255"/>
                 <field resource="notes" source-type="string" target="notes" target-type="string" target-header="General" max-length="2000"/>
                 <field resource="software_type" source-type="string" target="status" target-type="string"
@@ -291,7 +282,7 @@
                           doql="select view_device_v1.name as device_name, trim(view_software_v1.name) as software_name,  view_softwareinuse_v1.install_date, view_softwareinuse_v1.version from view_softwareinuse_v1  left join view_software_v1 on software_fk=software_pk left join view_device_v1 on device_fk=device_pk where view_softwareinuse_v1.device_fk is not null"
                         />
             </api>
-            <mapping callback="from_d42" doql-suffix=" and GREATEST(view_softwareinuse_v1.last_updated, view_device_v1.last_edited, view_software_v1.last_changed)>'%s'" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
+            <mapping callback="from_d42" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
             </mapping>
         </task>
 
