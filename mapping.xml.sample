@@ -15,6 +15,7 @@
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="
                                 select view_device_v2.*,
                                 coalesce(view_device_v2.physicalsubtype, view_device_v2.virtualsubtype) as device_subtype,
@@ -129,6 +130,7 @@
                 <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
                         asset-type="Server"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="
                                 select view_device_v1.*,
                                 cpucount * cpucore as total_cpucore,
@@ -290,6 +292,7 @@
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="
                                 select df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name
                                 from view_deviceaffinity_v2 df1
@@ -308,6 +311,7 @@
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"
                         delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="select distinct df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name from view_deviceaffinity_v2 df1 left outer join view_deviceaffinity_v2 df2 on df2.dependent_device_fk = df1.dependent_device_fk and df1.dependency_device_fk = df2.dependency_device_fk and df2.effective_to is null where df1.effective_to is not null and df1.dependent_device_fk is not null and df2.deviceaffinity_pk is null"
                         />
             </api>
@@ -319,6 +323,7 @@
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="
                                 select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
                                        case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
@@ -340,6 +345,7 @@
             <api>
                 <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json" delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
                           doql="
                                 select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
                                        case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
