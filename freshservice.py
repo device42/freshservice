@@ -4,6 +4,7 @@
 import requests
 from datetime import datetime
 import time
+import logging
 
 requests.packages.urllib3.disable_warnings()
 
@@ -119,9 +120,9 @@ class FreshService(object):
     def _delete(self, path, data=None):
         return self._send("DELETE", path, data)
 
-    def _log(self, message, level="DEBUG"):
+    def _log(self, message, level=logging.DEBUG):
         if self.logger:
-            self.logger.log(level.upper(), message)
+            self.logger.log(level, message)
 
     def insert_asset(self, data):
         path = "api/v2/assets"
