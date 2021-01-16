@@ -5,7 +5,10 @@ This repository contains script that helps you sync data from Device42 to FreshS
 
 ### Download and Installation
 -----------------------------
-To utilize the Device42_freshservice_mapping script, Python 3.5+ is required. The following Python Packages are required as well:
+Device42 v16.19.00+ (Legacy Included)
+Python 3.5+
+
+The following Python Packages are required:
 
 * pycrypto==2.6.1
 * pyparsing==2.1.10
@@ -16,6 +19,28 @@ To utilize the Device42_freshservice_mapping script, Python 3.5+ is required. Th
 These can all be installed by running `pip install -r requirements.txt`.
 
 Once installed, the script itself is run by this command: `python d42_sd_sync.py`.
+
+
+### Download and Installation (Legacy)
+----------------------------- 
+To utilize the Device42_freshservice_mapping script, Python 3.5+ is required. The following Python Packages are required as well:
+
+pycrypto==2.6.1
+pyparsing==2.1.10
+pyzmq==16.0.2
+requests==2.13.0
+xmljson==0.2.0
+These can all be installed by running pip install -r requirements.txt.
+
+In order to run the legacy migration, you will also need to modify the mapping.xml file so that the legacy mapping options are used
+
+modify the following line so that `enable` is set to false for the v2_views
+```enable="false" description="Copy Servers from Device42 to FreshService using DOQL v2_views"```
+
+modify the following line so that `enable` is set to true for the v1_views
+```enable="true" description="Copy Servers from Device42 to FreshService using DOQL v1_views"```
+
+Once the packages are installed and the script is configured, the script can be run by this command: python d42_sd_sync.py.
 
 ### Configuration
 -----------------------------
@@ -35,6 +60,22 @@ It is very important to adjust the list of default values in accordance between 
 
 After configuring the fields to map as needed, the script should be ready to run. 
 
+### Gotchas
+-----------------------------
+* FreshService API Limit is 1000 calls per hour (https://api.freshservice.com/#ratelimit)
+* Due to the nature of FreshService rate limits, large inventories may take extended periods of time to migrate
+
+Please use the following table as a reference only, actual times may vary due to request limit cooldowns and other internal API calls
+
+|# of Devices| Migration Time|
+|------------|---------------|
+| 100   | 6 min |
+| 1,000 | 1 hr |
+| 5,000 | 5 hrs | 
+|10,000 | 10 hrs |
+|24,000 | 24 hrs |
+
+
 ### Compatibility
 -----------------------------
 * Script runs on Linux and Windows
@@ -50,6 +91,6 @@ After configuring the fields to map as needed, the script should be ready to run
 -----------------------------
 We will support any issues you run into with the script and help answer any questions you have. Please reach out to us at support@device42.com
 
-###Version
+### Version
 -----------------------------
-1.0.0.190411
+2.0.0.201207
