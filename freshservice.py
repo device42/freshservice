@@ -163,8 +163,7 @@ class FreshService(object):
         if self.asset_types is not None:
             return self.asset_types
         path = "api/v2/asset_types"
-        asset_types = self._get(path)
-        self.asset_types = asset_types["asset_types"]
+        self.asset_types = self.request(path, "GET", "asset_types")
         return self.asset_types
 
     def get_ci_type_by_name(self, name, all_ci_types=None):
