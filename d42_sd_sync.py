@@ -11,6 +11,7 @@ from freshservice import FreshService, FreshServiceDuplicateSerialError
 import xml.etree.ElementTree as eTree
 from xmljson import badgerfish as bf
 import time
+import math
 
 logger = logging.getLogger('log')
 logger.setLevel(logging.INFO)
@@ -18,6 +19,15 @@ ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(logging.Formatter('%(asctime)-15s\t%(levelname)s\t %(message)s'))
 logger.addHandler(ch)
 CUR_DIR = os.path.dirname(os.path.abspath(__file__))
+
+RELATIONSHIP_BATCH_SIZE = 20
+# With v1 of the API, we were able to create about 4 relationships per second.
+# So we will assume that we will be able to create them at the same rate with
+# the asynchronous background jobs.
+RELATIONSHIPS_CREATED_PER_SECOND = 4
+# The number of seconds to wait before we check the status of create relationships jobs.
+RELATIONSHIPS_JOB_WAIT_SECONDS = int(math.ceil(RELATIONSHIP_BATCH_SIZE / float(RELATIONSHIPS_CREATED_PER_SECOND)))
+ASSET_TYPE_BUSINESS_SERVICE = "Business Service"
 
 parser = argparse.ArgumentParser(description="freshservice")
 
@@ -225,11 +235,21 @@ def update_objects_from_server(sources, _target, mapping):
                             data[map_info["@target"]] = value
 
                 if existing_object is None:
-                    logger.info("adding device %s" % source["name"])
+                    logger.info("adding asset %s" % source["name"])
                     new_asset_id = freshservice.insert_asset(data)
                     logger.info("added new asset %d" % new_asset_id)
                 else:
-                    logger.info("updating device %s" % source["name"])
+                    logger.info("updating asset %s" % source["name"])
+                    # This is a workaround for an issue with the Freshservice API where if a business service
+                    # asset has the Managed By field filled in and we don't send an agent_id to update this
+                    # field (we don't map any D42 data to this field and shouldn't need to because
+                    # the API will only update the fields that we send), it will result in a validation
+                    # error with the message:
+                    # Assigned agent isn't a member of the group.
+                    # So, if the business service asset has an agent_id already populated, we will send that
+                    # same value over and that will avoid this error.
+                    if _target["@asset-type"] == ASSET_TYPE_BUSINESS_SERVICE and "agent_id" in existing_object and existing_object["agent_id"]:
+                        data["agent_id"] = existing_object["agent_id"]
                     updated_asset_id = freshservice.update_asset(data, existing_object["display_id"])
                     logger.info("updated new asset %d" % updated_asset_id)
 
@@ -384,16 +404,20 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
     logger.info("finished getting all existing devices in FS.")
 
     logger.info("Getting relationship type in FS.")
-    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
-                                                                      mapping["@backward-relationship"])
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@downstream-relationship"],
+                                                                      mapping["@upstream-relationship"])
     logger.info("finished getting relationship type in FS.")
     if relationship_type is None:
         log = "There is no relationship type in FS. (%s - %s)" % (
-            mapping["@forward-relationship"], mapping["@backward-relationship"])
+            mapping["@downstream-relationship"], mapping["@upstream-relationship"])
         logger.info(log)
         return
 
-    for source in sources:
+    relationships_to_create = list()
+    source_count = len(sources)
+    submitted_jobs = list()
+
+    for idx, source in enumerate(sources):
         try:
             logger.info("Processing %s - %s." % (source[mapping["@key"]], source[mapping["@target-key"]]))
             primary_asset = find_object_by_name(existing_objects, source[mapping["@key"]])
@@ -413,25 +437,122 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
             exist = False
             for relationship in relationships:
                 if relationship["relationship_type_id"] == relationship_type["id"]:
-                    if relationship["config_item"]["display_id"] == secondary_asset["display_id"]:
+                    if relationship["secondary_id"] == secondary_asset["display_id"]:
                         exist = True
                         break
             if exist:
                 logger.info("There is already relationship in FS.")
                 continue
 
-            data = dict()
-            data["type"] = "config_items"
-            data["type_id"] = [secondary_asset["display_id"]]
-            data["relationship_type_id"] = relationship_type["id"]
-            data["relationship_type"] = "forward_relationship"
-            logger.info("adding relationship %s" % source[mapping["@key"]])
-            new_relationship_id = freshservice.insert_relationship(primary_asset["display_id"], data)
-            logger.info("added new relationship %d" % new_relationship_id)
+            relationships_to_create.append({
+                "relationship_type_id": relationship_type["id"],
+                "primary_id": primary_asset["display_id"],
+                "primary_type": "asset",
+                "secondary_id": secondary_asset["display_id"],
+                "secondary_type": "asset"
+            })
+
+            # Create a new job if we reached our batch size or we are on the last item (which
+            # means this is the last batch we will be submitting).
+            if len(relationships_to_create) >= RELATIONSHIP_BATCH_SIZE or idx == source_count - 1:
+                submitted_jobs.append(submit_relationship_create_job(relationships_to_create))
+
+                # Clear the list for the next batch of relationships we are going to send.
+                del relationships_to_create[:]
         except Exception as e:
             log = "Error (%s) creating relationship %s" % (str(e), source[mapping["@key"]])
             logger.exception(log)
 
+    # We may not have submitted the last batch of relationships to create if the last item in
+    # sources did not result in a relationship needing to be created (e.g. one of the assets
+    # in the relationship did not exist in Freshservice, the relationship already existed in
+    # Freshservice, etc.).  So if we have any relationships that we need to create that have
+    # not been submitted, submit them now.
+    if relationships_to_create:
+        submitted_jobs.append(submit_relationship_create_job(relationships_to_create))
+
+        del relationships_to_create[:]
+
+    if submitted_jobs:
+        jobs_to_check = list(submitted_jobs)
+        next_jobs_to_check = list()
+
+        # We will make attempts to check the status of the jobs and see if they have
+        # completed.  The max time we will wait is the number of jobs we submitted
+        # times the amount of time it takes to create a full batch of relationships.
+        # This total wait time will be broken into chunks based on how long it would
+        # take a single batch of relationships to be created.  For example, if we
+        # submitted 3 jobs and each job had a batch of 20 relationships to create,
+        # then it should take 5 seconds to create the 20 relationships based on being
+        # able to create them at a rate of 4 per second.  We will wait 5 seconds, then
+        # check the status of all jobs.  If there are any jobs still waiting to complete,
+        # then we will wait another 5 seconds and check the status of the jobs that were
+        # previously waiting to complete.
+        # Added 20% padding to wait a little bit longer for the jobs to complete
+        # if needed.
+        for i in range(int(math.ceil(len(submitted_jobs) * 1.2))):
+            time.sleep(RELATIONSHIPS_JOB_WAIT_SECONDS)
+
+            for job_to_check in jobs_to_check:
+                try:
+                    job = freshservice.get_job(job_to_check["job_id"])
+                    status = job["status"]
+
+                    if status == "success":
+                        # All relationships were created.
+                        logger.info("Job %s created all %d relationships successfully." % (job_to_check["job_id"], job_to_check["relationships_to_create_count"]))
+                    elif status in ["failed", "partial"]:
+                        # No relationships were created (failed status) or some relationships
+                        # were created and some were not (partial status).
+                        for relationship in job["relationships"]:
+                            if not relationship["success"]:
+                                log = "Job %s failed to create relationship: %s" % (job_to_check["job_id"], relationship)
+                                logger.error(log)
+                    elif status in ["queued", "in progress"]:
+                        # The job has not completed yet.
+                        next_jobs_to_check.append(job_to_check)
+                        log = "Job %s has not completed yet. The job status is %s." % (job_to_check["job_id"], status)
+                        logger.info(log)
+                    else:
+                        raise Exception("Received unknown job status of %s." % status)
+                except Exception as e:
+                    log = "Error (%s) checking job %s" % (str(e), job_to_check["job_id"])
+                    logger.exception(log)
+
+            # Clear the list.
+            del jobs_to_check[:]
+
+            if next_jobs_to_check:
+                # We still have jobs we need to check.
+                jobs_to_check.extend(next_jobs_to_check)
+
+                # Clear the list so that we can add the next set of jobs that are
+                # still waiting to complete.
+                del next_jobs_to_check[:]
+            else:
+                # There are no more jobs that we need to check, so we can stop
+                # checking.
+                break
+
+        if jobs_to_check:
+            submitted_jobs_count = len(submitted_jobs)
+            jobs_not_completed_count = len(jobs_to_check)
+
+            logger.info("%d of %d relationship create jobs did not complete." % (jobs_not_completed_count, submitted_jobs_count))
+
+
+def submit_relationship_create_job(relationships_to_create):
+    logger.info("adding relationship create job")
+    # Creating relationships using the v2 API is now an asynchronous operation and is
+    # performed using background jobs.  We will get back the job ID which can then be
+    # used to query the status of the job.
+    job_id = freshservice.insert_relationships({"relationships": relationships_to_create})
+    logger.info("added new relationship create job %s" % job_id)
+
+    return {
+        "job_id": job_id,
+        "relationships_to_create_count": len(relationships_to_create)
+    }
 
 def delete_relationships_from_affinity_group(sources, _target, mapping):
     global freshservice
@@ -441,12 +562,12 @@ def delete_relationships_from_affinity_group(sources, _target, mapping):
     logger.info("finished getting all existing devices in FS.")
 
     logger.info("Getting relationship type in FS.")
-    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
-                                                                      mapping["@backward-relationship"])
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@downstream-relationship"],
+                                                                      mapping["@upstream-relationship"])
     logger.info("finished getting relationship type in FS.")
     if relationship_type is None:
         log = "There is no relationship type in FS. (%s - %s)" % (
-            mapping["@forward-relationship"], mapping["@backward-relationship"])
+            mapping["@downstream-relationship"], mapping["@upstream-relationship"])
         logger.info(log)
         return
 
@@ -468,14 +589,14 @@ def delete_relationships_from_affinity_group(sources, _target, mapping):
             remove_relationship = None
             for relationship in relationships:
                 if relationship["relationship_type_id"] == relationship_type["id"]:
-                    if relationship["config_item"]["display_id"] == secondary_asset["display_id"]:
+                    if relationship["secondary_id"] == secondary_asset["display_id"]:
                         remove_relationship = relationship
                         break
             if remove_relationship is None:
                 logger.info("There is no relationship in FS.")
                 continue
 
-            freshservice.detach_relationship(primary_asset["display_id"], remove_relationship["id"])
+            freshservice.detach_relationship(remove_relationship["id"])
             logger.info("detached relationship %d" % remove_relationship["id"])
         except Exception as e:
             log = "Error (%s) deleting relationship %s" % (str(e), source[mapping["@key"]])
@@ -494,12 +615,12 @@ def delete_relationships_from_business_app(sources, _target, mapping):
     logger.info("finished getting all existing devices in FS.")
 
     logger.info("Getting relationship type in FS.")
-    relationship_type = freshservice.get_relationship_type_by_content(mapping["@forward-relationship"],
-                                                                      mapping["@backward-relationship"])
+    relationship_type = freshservice.get_relationship_type_by_content(mapping["@downstream-relationship"],
+                                                                      mapping["@upstream-relationship"])
     logger.info("finished getting relationship type in FS.")
     if relationship_type is None:
         log = "There is no relationship type in FS. (%s - %s)" % (
-            mapping["@forward-relationship"], mapping["@backward-relationship"])
+            mapping["@downstream-relationship"], mapping["@upstream-relationship"])
         logger.info(log)
         return
 
@@ -509,9 +630,9 @@ def delete_relationships_from_business_app(sources, _target, mapping):
             relationships = freshservice.get_relationships_by_id(existing_object["display_id"])
             for relationship in relationships:
                 if relationship["relationship_type_id"] == relationship_type["id"] and \
-                                relationship["relationship_type"] == "forward_relationship":
+                                relationship["primary_id"] == existing_object["display_id"]:
                     remove_relationship = relationship
-                    target_display_id = relationship["config_item"]["display_id"]
+                    target_display_id = relationship["secondary_id"]
                     for source in sources:
                         if source[mapping["@key"]] == existing_object["name"]:
                             secondary_asset = find_object_by_name(existing_objects, source[mapping["@target-key"]])
@@ -522,7 +643,7 @@ def delete_relationships_from_business_app(sources, _target, mapping):
                     if remove_relationship is None:
                         continue
 
-                    freshservice.detach_relationship(existing_object["display_id"], remove_relationship["id"])
+                    freshservice.detach_relationship(remove_relationship["id"])
                     logger.info("detached relationship %d" % remove_relationship["id"])
         except Exception as e:
             log = "Error (%s) deleting relationship %s" % (str(e), existing_object[mapping["@key"]])
