@@ -1,5 +1,5 @@
 pycrypto==2.6.1
 pyparsing==2.1.10
 pyzmq==16.0.2
-requests==2.13.0
+requests==2.31.0
 xmljson==0.2.0
