@@ -263,37 +263,28 @@ class FreshService(object):
             return models
         return []
 
-    def get_relationship_type_by_content(self, forward, backward):
-        path = "/cmdb/relationship_types/list.json"
-        relationships = None
-        if relationships is None:
-            relationships = self._get(path)
+    def get_relationship_type_by_content(self, downstream, upstream):
+        path = "/api/v2/relationship_types"
+        relationship_types = self.request(path, "GET", "relationship_types")
 
-        for relationship in relationships:
-            if relationship["forward_relationship"] == forward and relationship["backward_relationship"] == backward:
-                return relationship
+        for relationship_type in relationship_types:
+            if relationship_type["downstream_relation"] == downstream and relationship_type["upstream_relation"] == upstream:
+                return relationship_type
 
         return None
 
     def get_relationships_by_id(self, asset_id):
-        path = "/cmdb/items/%d/relationships.json" % asset_id
-        result = self._get(path)
-        if "relationships" in result:
-            return result["relationships"]
-        return []
+        path = "/api/v2/assets/%d/relationships" % asset_id
+        return self.request(path, "GET", "relationships")
 
-    def insert_relationship(self, asset_id, data):
-        path = "/cmdb/items/%d/associate.json" % asset_id
-        relationships = self._post(path, data)
-        if len(relationships) > 0:
-            return relationships[0]["id"]
+    def insert_relationships(self, data):
+        path = "/api/v2/relationships/bulk-create"
+        job = self._post(path, data)
+        return job["job_id"]
 
-        return -1
-
-    def detach_relationship(self, asset_id, relationship_id):
-        path = "/cmdb/items/%d/detach_relationship.json" % asset_id
-
-        return self._delete(path, {"relationship_id": relationship_id})
+    def detach_relationship(self, relationship_id):
+        path = "/api/v2/relationships?ids=%d" % relationship_id
+        return self._delete(path)
 
     def get_installations_by_id(self, display_id):
         path = "/api/v2/applications/%d/installations" % display_id
@@ -320,3 +311,8 @@ class FreshService(object):
             return installation['installation']["id"]
 
         return -1
+
+    def get_job(self, job_id):
+        path = "/api/v2/jobs/%s" % job_id
+        return self._get(path)
+
