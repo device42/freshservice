@@ -37,7 +37,7 @@ parser.add_argument('-q', '--quiet', action='store_true', help='Quiet mode - out
 parser.add_argument('-c', '--config', help='Config file', default='mapping.xml')
 parser.add_argument('-l', '--logfolder', help='log folder path', default='.')
 
-freshservice = FreshService()
+freshservice = None
 default_approver = None
 fs_cache = dict()
 
@@ -1059,7 +1059,11 @@ def task_execute(task, device42):
     else:
         doql = None
 
-    source_url = _resource['@path']
+    if '@path' in _resource:
+        source_url = _resource['@path']
+    else:
+        source_url = "services/data/v1.0/query/"
+
     if "@extra-filter" in _resource:
         source_url += _resource["@extra-filter"] + "&amp;"
 

@@ -25,7 +25,7 @@
                             "
                         />
             </api>
-            <mapping callback="from_d42" key="name" doql-suffix=" where GREATEST(view_hardware_v2.last_changed, view_vendor_v1.last_changed, view_device_v2.last_changed) >'%s'">
+            <mapping callback="from_d42" key="name">
                 <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
                 <field resource="manufacturer" source-type="string" target="manufacturer" target-type="string"
                    not-null="true" set-space="true" min-length="1" max-length="255"/>
@@ -46,7 +46,7 @@
                             "
                         />
             </api>
-            <mapping callback="from_d42" key="name" doql-suffix=" where GREATEST(view_hardware_v1.last_changed, view_vendor_v1.last_changed, view_device_v1.last_changed) >'%s'">
+            <mapping callback="from_d42" key="name">
                 <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
                 <field resource="manufacturer" source-type="string" target="manufacturer" target-type="string"
                    not-null="true" set-space="true" min-length="1" max-length="255"/>
@@ -314,7 +314,7 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.last_edited>'%s' ">
+            <mapping callback="from_d42" key="name" source="Devices">
                 <!--  General -->
                 <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
                        target-header="General" not-null="true" min-length="1" max-length="255"/>
@@ -575,7 +575,7 @@
                        target-header="Switch" not-null="true" max-length="255"/>
                 <!-- ~Switch -->
             </mapping>
-            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v2.name='%s'">
+            <unmapping callback="from_d42" key="name" source="Devices">
                 <field resource="network_device" source-type="boolean" display-name="Network Device"/>
                 <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
                 <field resource="device_subtype" source-type="string" display-name="Device Subtype"/>
@@ -826,7 +826,7 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.last_edited>'%s'">
+            <mapping callback="from_d42" key="name" source="Devices">
                 <!--  General -->
                 <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
                        target-header="General" not-null="true" min-length="1" max-length="255"/>
@@ -1083,7 +1083,7 @@
                        target-header="Switch" not-null="true" max-length="255"/>
                 <!-- ~Switch -->
             </mapping>
-            <unmapping callback="from_d42" key="name" source="Devices" doql-suffix=" where view_device_v1.name='%s'">
+            <unmapping callback="from_d42" key="name" source="Devices">
                 <field resource="network_device" source-type="boolean" display-name="Network Device"/>
                 <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
             </unmapping>
@@ -1108,7 +1108,7 @@
                           doql="select * from (select trim(name) as name, min(view_software_v1.software_type) as software_type, min(view_software_v1.notes) as notes, 'desktop' as application_type, min(view_software_v1.software_type) as category, min(last_changed) as last_changed from view_software_v1 group by trim(name)) a"
                         />
             </api>
-            <mapping callback="from_d42" key="name" source="Softwares" doql-suffix=" where last_changed>'%s'">
+            <mapping callback="from_d42" key="name" source="Softwares">
                 <field resource="name" source-type="string" target="name" target-type="string" target-header="General" max-length="255" escape="true"/>
                 <field resource="notes" source-type="string" target="notes" target-type="string" target-header="General" max-length="2000"/>
                 <field resource="software_type" source-type="string" target="status" target-type="string"
@@ -1165,7 +1165,7 @@
 							where (device.asset_type = 'Computer' or device.asset_type = 'Virtual Machine')
 						"/>
             </api>
-            <mapping callback="from_d42" doql-suffix=" and GREATEST(view_softwareinuse_v1.last_updated, device.last_edited, view_software_v1.last_changed)>'%s'" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
+            <mapping callback="from_d42" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
             </mapping>
         </task>
 
@@ -1204,7 +1204,7 @@
 							where (device.asset_type = 'Computer' or device.asset_type = 'Virtual Machine')
 						"/>
             </api>
-            <mapping callback="from_d42" doql-suffix=" and GREATEST(view_softwareinuse_v1.last_updated, device.last_edited, view_software_v1.last_changed)>'%s'" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
+            <mapping callback="from_d42" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
             </mapping>
         </task>
 
@@ -1294,7 +1294,7 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Businessapps" doql-suffix=" where GREATEST(ba.last_changed, eu.last_updated) >'%s'">
+            <mapping callback="from_d42" key="name" source="Businessapps">
                 <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
                        set-space="true" min-length="1" max-length="248" escape="true"/>
                 <field resource="description" source-type="string" target="description" target-header="General"
@@ -1316,7 +1316,7 @@
                        target-header="Assignment"
                        target-foregin="agents" target-foregin-key="email" target-field="user_id"/>
             </mapping>
-            <unmapping callback="from_d42" key="name" doql-suffix=" where ba.name='%s'">
+            <unmapping callback="from_d42" key="name">
             </unmapping>
             <d42url resource="businessapplication_pk" source-type="integer" url="{0}/admin/rackraj/businessapp/{1}/" />
         </task>
@@ -1333,11 +1333,11 @@
                         />
             </api>
 
-            <mapping callback="from_d42" key="name" source="Businessapps" doql-suffix=" where ba.last_changed >'%s'">
+            <mapping callback="from_d42" key="name" source="Businessapps">
                 <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
                        set-space="true" min-length="1" max-length="248" escape="true"/>
             </mapping>
-            <unmapping callback="from_d42" key="name" doql-suffix=" where ba.name='%s'">
+            <unmapping callback="from_d42" key="name">
             </unmapping>
             <d42url resource="businessapplication_pk" source-type="integer" url="{0}/admin/rackraj/businessapp/{1}/" />
         </task>
