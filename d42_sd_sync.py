@@ -310,7 +310,7 @@ def update_objects_from_server(sources, _target, mapping):
                             try:
                                 value = int(value)
                             except Exception as e:
-                                logger.error(str(e))
+                                logger.exception(str(e))
                                 is_valid = False
 
                         elif target_type == "dropdown":
@@ -327,7 +327,7 @@ def update_objects_from_server(sources, _target, mapping):
                                 else:
                                     value = option
                             except Exception as e:
-                                logger.error(str(e))
+                                logger.exception(str(e))
                                 is_valid = False
 
                     if not is_valid:
@@ -372,7 +372,7 @@ def update_objects_from_server(sources, _target, mapping):
                 break
             except Exception as e:
                 log = "Error (%s) updating device %s" % (str(e), source["name"])
-                logger.error(log)
+                logger.exception(log)
                 break
 
 
@@ -397,7 +397,7 @@ def delete_objects_from_server(sources, _target, mapping):
                 logger.info("deleted asset %s" % existing_object["name"])
             except Exception as e:
                 log = "Error (%s) deleting device %s" % (str(e), existing_object["name"])
-                logger.error(log)
+                logger.exception(log)
 
 
 def update_softwares_from_server(sources, _target, mapping):
@@ -435,7 +435,7 @@ def update_softwares_from_server(sources, _target, mapping):
                 logger.info("updated existing software %d" % updated_software_id)
         except Exception as e:
             log = "Error (%s) updating software %s" % (str(e), source["name"])
-            logger.error(log)
+            logger.exception(log)
 
 
 def delete_softwares_from_server(sources, _target, mapping):
@@ -459,7 +459,7 @@ def delete_softwares_from_server(sources, _target, mapping):
                 logger.info("deleted software %s" % existing_object["name"])
             except Exception as e:
                 log = "Error (%s) deleting software %s" % (str(e), existing_object["name"])
-                logger.error(log)
+                logger.exception(log)
 
 
 def update_products_from_server(sources, _target, mapping):
@@ -501,7 +501,7 @@ def update_products_from_server(sources, _target, mapping):
                 logger.info("updated existing product %d" % updated_product_id)
         except Exception as e:
             log = "Error (%s) updating product %s" % (str(e), source["name"])
-            logger.error(log)
+            logger.exception(log)
 
 
 def create_installation_from_software_in_use(sources, _target, mapping):
@@ -537,12 +537,12 @@ def create_installation_from_software_in_use(sources, _target, mapping):
 
             if asset is None:
                 log = "There is no asset(%s) in FS." % source[mapping["@device-name"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             if software is None:
                 log = "There is no software(%s) in FS." % source[mapping["@software-name"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             if software["id"] not in software_to_assets_map:
@@ -566,7 +566,7 @@ def create_installation_from_software_in_use(sources, _target, mapping):
             logger.info("added installation %s-%s" % (source[mapping["@device-name"]], source[mapping["@software-name"]]))
         except Exception as e:
             log = "Error (%s) creating installation %s" % (str(e), source[mapping["@device-name"]])
-            logger.error(log)
+            logger.exception(log)
 
 
 def create_relationships_from_affinity_group(sources, _target, mapping):
@@ -606,14 +606,14 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
 
             if primary_asset is None:
                 log = "There is no dependent asset(%s) in FS." % source[mapping["@key"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             secondary_asset = find_object_in_map(existing_objects_map, source[mapping["@target-key"]])
 
             if secondary_asset is None:
                 log = "There is no dependency asset(%s) in FS." % source[mapping["@target-key"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             primary_asset_display_id = primary_asset["display_id"]
@@ -651,7 +651,7 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
                 del relationships_to_create[:]
         except Exception as e:
             log = "Error (%s) creating relationship %s" % (str(e), source[mapping["@key"]])
-            logger.error(log)
+            logger.exception(log)
 
     # We may not have submitted the last batch of relationships to create if the last item in
     # sources did not result in a relationship needing to be created (e.g. one of the assets
@@ -697,7 +697,7 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
                         for relationship in job["relationships"]:
                             if not relationship["success"]:
                                 log = "Job %s failed to create relationship: %s" % (job_to_check["job_id"], relationship)
-                                logger.error(log)
+                                logger.exception(log)
                     elif status in ["queued", "in progress"]:
                         # The job has not completed yet.
                         next_jobs_to_check.append(job_to_check)
@@ -936,7 +936,7 @@ def update_contracts_from_server(sources, _target, mapping):
                             try:
                                 value = int(value)
                             except Exception as e:
-                                logger.error(str(e))
+                                logger.exception(str(e))
                                 is_valid = False
 
                     if not is_valid:
@@ -971,7 +971,7 @@ def update_contracts_from_server(sources, _target, mapping):
                 break
             except Exception as e:
                 log = "Error (%s) updating contract %s" % (str(e), source["name"])
-                logger.error(log)
+                logger.exception(log)
                 break
 
 
@@ -1010,12 +1010,12 @@ def create_association_between_asset_and_contract(sources, _target, mapping):
 
             if asset is None:
                 log = "There is no asset(%s) in FS." % source[mapping["@device-name"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             if contract is None:
                 log = "There is no contract(%s) in FS." % source[mapping["@contract-name"]]
-                logger.error(log)
+                logger.exception(log)
                 continue
 
             if contract["id"] not in contract_to_assets_map:
@@ -1035,7 +1035,7 @@ def create_association_between_asset_and_contract(sources, _target, mapping):
             logger.info("added associated asset %s-%s" % (source[mapping["@device-name"]], source[mapping["@contract-name"]]))
         except Exception as e:
             log = "Error (%s) creating associated assets %s-%s" % (str(e), source[mapping["@device-name"]], source[mapping["@contract-name"]])
-            logger.error(log)
+            logger.exception(log)
 
 
 def parse_config(url):
@@ -1119,10 +1119,10 @@ def get_agent_from_freshservice(email):
     try:
         agents = freshservice.get_all_agents()
         for agent in agents:
-            if agent['email'] == email:
+            if agent['email'].lower() == email.lower():
                 return agent['id']
     except Exception as e:
-        logger.error(str(e))
+        logger.exception(str(e))
 
     return default_approver
 
