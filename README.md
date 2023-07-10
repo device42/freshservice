@@ -35,10 +35,10 @@ These can all be installed by running pip install -r requirements.txt.
 In order to run the legacy migration, you will also need to modify the mapping.xml file so that the legacy mapping options are used
 
 modify the following line so that `enable` is set to false for the v2_views
-```enable="false" description="Copy Servers from Device42 to Freshservice using DOQL v2_views"```
+```enable="false" description="Copy Servers from Device42 to FreshService using DOQL v2_views"```
 
 modify the following line so that `enable` is set to true for the v1_views
-```enable="true" description="Copy Servers from Device42 to Freshservice using DOQL v1_views"```
+```enable="true" description="Copy Servers from Device42 to FreshService using DOQL v1_views"```
 
 Once the packages are installed and the script is configured, the script can be run by this command: python d42_sd_sync.py.
 
