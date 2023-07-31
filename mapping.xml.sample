@@ -2,7 +2,8 @@
     <settings>
         <freshservice
                 url="{url}.freshservice.com"
-                api_key="{api_key}"/>
+                api_key="{api_key}"
+                default_approver_email=""/>
         <device42
                 url="https://{url}"
                 user="{user}"
@@ -10,234 +11,1082 @@
     </settings>
 
     <tasks>
-        <task enable="true" description="Copy Servers from Device42 to FreshService using DOQL v2" d42_min_version="16.19.00">
+        <task enable="true" name="Products" type="product" description="Copy Product info from Device42 to FreshService" d42_min_version="16.19.00">
             <api>
-                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
-                        asset-type="Server"/>
-                <resource model="Devices" target="device42" method="POST"
+                <target model="products" target="freshservice" method="POST" update_method="PUT" path="api/v2/products" asset-type="Hardware"/>
+                <resource target="device42" method="POST"
                           path="services/data/v1.0/query/"
                           doql="
-                                select view_device_v2.*,
-                                coalesce(view_device_v2.physicalsubtype, view_device_v2.virtualsubtype) as device_subtype,
-                                core_per_cpu * total_cpus as total_cpucore,
-                                t_cost.cost,
+                            select distinct
                                 view_vendor_v1.name as manufacturer,
-                                case WHEN view_device_v2.type = 'Virtual' THEN view_device_v2.type WHEN view_device_v2.type = 'Cluster' THEN view_device_v2.type ELSE coalesce(view_hardware_v2.name, view_device_v2.type) END as hw_model,
-                                case WHEN view_device_v2.hz = 'MHz' and view_device_v2.cpu_speed is not null  THEN view_device_v2.cpu_speed / 1000 ELSE view_device_v2.cpu_speed END as cpuspeed,
-                                case WHEN view_device_v2.ram_size_type = 'MB' and view_device_v2.ram is not null  THEN view_device_v2.ram / 1024 WHEN view_device_v2.ram_size_type = 'TB' and view_device_v2.ram is not null  THEN view_device_v2.ram * 1024 ELSE view_device_v2.ram END as ramsize,
-                                network_ip.ip_address, network_hw.hwaddress,
-                                CEIL(COALESCE(p.total_part_disk_size,
-                                                CASE
-                                                    WHEN view_device_v2.hard_disk_count IS NOT NULL AND
-                                                         view_device_v2.hard_disk_size IS NOT NULL AND
-                                                         view_device_v2.hard_disk_size_type IS NOT NULL THEN
-                                                            view_device_v2.hard_disk_count *
-                                                            CASE
-                                                                WHEN view_device_v2.hard_disk_size_type = 'GB' THEN view_device_v2.hard_disk_size
-                                                                WHEN view_device_v2.hard_disk_size_type = 'TB' THEN view_device_v2.hard_disk_size * 1024
-                                                                WHEN view_device_v2.hard_disk_size_type = 'PB' THEN view_device_v2.hard_disk_size * 1024 * 1024
-                                                                ELSE NULL
-                                                            END
-                                                    ELSE NULL
-                                                END)) AS disk_size
-                                from view_device_v2 left join view_hardware_v2 on view_device_v2.hardware_fk = view_hardware_v2.hardware_pk left join  (select view_ipaddress_v1.device_fk,  string_agg(host(view_ipaddress_v1.ip_address)::character varying, ', ' order by view_ipaddress_v1.ip_address) as ip_address from view_ipaddress_v1 group by view_ipaddress_v1.device_fk) network_ip on view_device_v2.device_pk=network_ip.device_fk
-                                left join (select device_fk, string_agg(
-                                    CASE
-                                        WHEN LENGTH(TRIM(view_netport_v1.hwaddress)) = 12
-                                        THEN CONCAT_WS(':',left(TRIM(view_netport_v1.hwaddress),2), substring(TRIM(view_netport_v1.hwaddress),3,2), substring(TRIM(view_netport_v1.hwaddress),5,2), substring(TRIM(view_netport_v1.hwaddress),7,2), substring(TRIM(view_netport_v1.hwaddress),9,2), right(TRIM(view_netport_v1.hwaddress),2))
-                                        ELSE
-                                            view_netport_v1.hwaddress
-                                        END, ', ' order by view_netport_v1.hwaddress) as hwaddress from view_netport_v1 where (view_netport_v1.hwaddress is not null AND LENGTH(TRIM(view_netport_v1.hwaddress)) > 0) group by view_netport_v1.device_fk) network_hw on view_device_v2.device_pk=network_hw.device_fk
-                                    left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk
-                                LEFT OUTER JOIN (
-                                   SELECT p.device_fk,
-                                     SUM(p.pcount *
-                                         CASE
-                                           WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
-                                           WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
-                                           WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
-                                           ELSE NULL
-                                         END) AS total_part_disk_size
-                                     FROM view_part_v1 p
-                                     INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
-                                     WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
-                                     GROUP BY p.device_fk
-                                 ) AS p ON view_device_v2.device_pk = p.device_fk
+                                case WHEN view_device_v2.type = 'Virtual' THEN view_device_v2.type WHEN view_device_v2.type = 'Cluster' THEN view_device_v2.type ELSE coalesce(view_hardware_v2.name, view_device_v2.type) END as name
+                                from view_device_v2 left join view_hardware_v2 on view_device_v2.hardware_fk = view_hardware_v2.hardware_pk
+                                left join view_vendor_v1 on vendor_pk=vendor_fk
+                            "
+                        />
+            </api>
+            <mapping callback="from_d42" key="name">
+                <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
+                <field resource="manufacturer" source-type="string" target="manufacturer" target-type="string"
+                   not-null="true" set-space="true" min-length="1" max-length="255"/>
+            </mapping>
+        </task>
+
+        <task enable="false" name="Products" type="product" description="Copy Product info from Device42 to FreshService" d42_max_version="16.18.02">
+            <api>
+                <target model="products" target="freshservice" method="POST" update_method="PUT" path="api/v2/products" asset-type="Hardware"/>
+                <resource target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="
+                            select distinct
+                                view_vendor_v1.name as manufacturer,
+                                case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as name
+                                from view_device_v1 left join view_hardware_v1 on view_device_v1.hardware_fk = view_hardware_v1.hardware_pk
+                                left join view_vendor_v1 on vendor_pk=vendor_fk
+                            "
+                        />
+            </api>
+            <mapping callback="from_d42" key="name">
+                <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
+                <field resource="manufacturer" source-type="string" target="manufacturer" target-type="string"
+                   not-null="true" set-space="true" min-length="1" max-length="255"/>
+            </mapping>
+        </task>
+
+        <task enable="true" name="Devices" description="Copy Servers from Device42 to FreshService using DOQL v2" d42_min_version="16.19.00">
+            <api>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets" />
+                <resource model="Devices" target="device42" method="POST"
+                          doql="
+                                WITH
+                                devicelastlogin AS (
+                                    with sub as ( SELECT dll.device_fk, dll.username, ROW_NUMBER() OVER(PARTITION BY dll.device_fk ORDER BY dll.last_login DESC) AS rank FROM view_devicelastlogin_v1 dll )
+                                    SELECT *   FROM sub  WHERE rank = 1 )
+
+                                ,alias as ( SELECT device_fk,  string_agg(alias_name, ', ' order by alias_name) as hostname FROM view_devicealias_v1 GROUP BY device_fk)
+
+                                ,assetlifecycle AS (
+                                    with sub as  (
+                                        SELECT alc.device_fk, alc.date,
+                                            ROW_NUMBER() OVER(PARTITION BY alc.device_fk ORDER BY alc.date DESC) AS rank
+                                        FROM view_assetlifecycle_v1 alc
+                                        INNER JOIN view_assetaction_v1 aaction ON alc.assetaction_fk = aaction.assetaction_pk WHERE aaction.name = 'Purchased')
+                                    SELECT *   FROM sub  WHERE rank = 1    )
+
+                                ,asset_endlifecycle AS (
+                                    with sub as  (
+                                        SELECT alc.device_fk, to_char(alc.date, 'YYYY-MM-DD') as date,
+                                            ROW_NUMBER() OVER(PARTITION BY alc.device_fk ORDER BY alc.date) AS rank
+                                        FROM view_assetlifecycle_v1 alc
+                                        INNER JOIN view_assetaction_v1 aaction ON alc.assetaction_fk = aaction.assetaction_pk WHERE aaction.name = 'Retired')
+                                    SELECT *   FROM sub  WHERE rank = 1    )
+
+                                ,warranty AS (
+                                    with sub as (
+                                                SELECT plid.device_fk, pli.start_date, pli.end_date,
+                                                    extract(year from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) warranty_years,
+                                                    extract(month from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) + case when extract(day from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) > 0 then 1 else 0 end  warranty_months,
+                                                    ven.name as purchase_order_vendor,
+                                                    ROW_NUMBER() OVER(PARTITION BY plid.device_fk ORDER BY pli.end_date DESC) AS rank
+                                                FROM view_purchaselineitems_to_devices_v1 plid
+                                                INNER JOIN view_purchaselineitem_v1 pli ON plid.purchaselineitem_fk = pli.purchaselineitem_pk
+                                                LEFT JOIN view_purchase_v1 pur ON pli.purchase_fk = pur.purchase_pk
+                                                LEFT JOIN view_vendor_v1 ven ON pur.vendor_fk=ven.vendor_pk
+                                                WHERE lower(pli.line_type) = 'contract'
+                                                    and ( lower(pli.contract_type_name) = 'warranty'
+                                                            or ( lower(pli.contract_type_name) in ('base', 'upgrade') and lower(ven.name) in ('ibm', 'lenovo'))
+                                                        )
+                                                      and pli.end_date is not null
+                                                )
+                                       SELECT *  FROM sub  WHERE rank = 1 )
+
+                                ,part_count as (
+                                    SELECT p.device_fk,
+                                         SUM(p.pcount *
+                                             CASE
+                                               WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
+                                               WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
+                                               WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
+                                               ELSE NULL
+                                             END) AS total_part_disk_size
+                                         FROM view_part_v1 p
+                                         INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
+                                         WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
+                                         GROUP BY p.device_fk )
+
+                                ,network_port_count as (
+                                    SELECT p.device_fk,
+                                         count(*) AS total_port_count
+                                         from (
+                                            select device_fk, hwaddress from view_netport_v1 where device_fk is not null
+                                            union
+                                            select second_device_fk as device_fk, hwaddress from view_netport_v1 where second_device_fk is not null
+                                            ) p
+                                         WHERE p.device_fk is not null
+                                         GROUP BY p.device_fk )
+
+                                ,total_costs as (
+                                    select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk  group by device_fk)
+
+                                ,network_hw as (
+                                    select device_fk,
+                                        string_agg(
+                                            CASE
+                                                WHEN LENGTH(TRIM(netport.hwaddress)) = 12
+                                                THEN CONCAT_WS(':',left(TRIM(netport.hwaddress),2), substring(TRIM(netport.hwaddress),3,2), substring(TRIM(netport.hwaddress),5,2), substring(TRIM(netport.hwaddress),7,2), substring(TRIM(netport.hwaddress),9,2), right(TRIM(netport.hwaddress),2))
+                                                ELSE
+                                                    netport.hwaddress
+                                                END, ', '
+                                                order by netport.hwaddress) as hwaddress
+												from (
+													select device_fk, hwaddress from view_netport_v1 where device_fk is not null
+													union
+													select second_device_fk as device_fk, hwaddress from view_netport_v1 where second_device_fk is not null
+													) netport
+                                                where (netport.hwaddress is not null AND LENGTH(TRIM(netport.hwaddress)) > 0)
+                                                group by netport.device_fk    )
+
+                                ,network_ip as (
+                                    select
+                                        vip.device_fk,
+                                        string_agg(host(vip.ip_address)::character varying, ', ' order by vip.ip_address) as ip_address,
+                                        string_agg(case when vip.ip_address &lt;&lt; inet '10/8' or vip.ip_address &lt;&lt; inet '192/8' or vip.ip_address &lt;&lt; inet '172.16/12' then
+                                            host(vip.ip_address)::character varying
+                                            else null end, ', ' order by vip.ip_address) as private_ip_address,
+                                        string_agg(case when vip.ip_address &lt;&lt; inet '10/8' or vip.ip_address &lt;&lt; inet '192/8' or vip.ip_address &lt;&lt; inet '172.16/12' then null
+                                            else host(vip.ip_address)::character varying end, ', ' order by vip.ip_address) as public_ip_address,
+                                    	string_agg(host(vip.subnet_mask)::character varying, ', ' order by vip.ip_address) as subnet_mask
+                                        from (select distinct device_fk, ip_address, netmask(set_masklen(view_subnet_v1.network, view_subnet_v1.mask_bits)) as subnet_mask
+                                            from view_ipaddress_v1 left join view_subnet_v1 on view_ipaddress_v1.subnet_fk = view_subnet_v1.subnet_pk) vip group by vip.device_fk)
+
+                                ,subnet as (
+                                    select
+                                        vn.device_fk,
+                                        string_agg(host(vn.network)::character varying, ', ' order by vn.network) as network
+                                        from (select distinct device_fk, network from view_ipaddress_v1 left join view_subnet_v1 on subnet_pk=subnet_fk) vn group by vn.device_fk)
+
+                                ,vrfgroup as (
+                                    select
+                                        vn.device_fk,
+                                        string_agg(vn.vrfgroup, ', ' order by vn.vrfgroup) as vrfgroup
+                                        from (select distinct device_fk, view_vrfgroup_v1.name as vrfgroup from view_ipaddress_v1
+                                        left join view_subnet_v1 on subnet_pk=subnet_fk
+                                        left join view_vrfgroup_v1 on vrfgroup_pk=vrfgroup_fk) vn group by vn.device_fk)
+
+                                ,device_cluster AS (
+                                    SELECT device_cluster.child_device_fk device_fk,
+                                        string_agg(device_cluster.parent_device_name, ', ' order by device_cluster.parent_device_name) as device_cluster_name
+                                        FROM view_devices_in_cluster_v1 device_cluster group by device_cluster.child_device_fk)
+
+                                ,mount_point as (
+                                    select dr.device_fk, string_agg(resource.resource_name, ', ' order by resource.resource_name) as mountpoint
+                                    from view_deviceresource_v1 dr left join view_resource_v2 resource on resource.resource_pk=dr.resource_fk where dr.relation = 'Mountpoint' group by dr.device_fk)
+
+                                select view_device_v2.*,
+                                    case
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'laptop' THEN 'Laptop'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'workstation' THEN 'Desktop'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'network printer' THEN 'Printer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'router' THEN 'Router'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'firewall' THEN 'Firewall'
+                                        WHEN lower(view_device_v2.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
+                                        WHEN view_device_v2.network_device THEN 'Switch'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v2.os_name) like '%server%' THEN 'Windows Server'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Unix Server'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(aix)%' THEN 'AIX Server'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Solaris Server'
+                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v2.virtual_host THEN 'Host'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'vmware' THEN 'VMware VCenter VM'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'amazon ec2 instance' THEN 'AWS VM'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'azure virtual machine' THEN 'Azure VM'
+                                        WHEN lower(view_device_v2.type) = 'physical' THEN 'Server'
+                                        WHEN lower(view_device_v2.type) = 'virtual' THEN 'Virtual Machine'
+                                        ELSE 'Computer'
+                                    END as asset_type,
+                                    coalesce(view_device_v2.physicalsubtype, view_device_v2.virtualsubtype) as device_subtype,
+                                    view_device_v2.core_per_cpu * view_device_v2.total_cpus as total_cpucore,
+                                    t_cost.cost,
+                                    case WHEN view_device_v2.type = 'Virtual' THEN view_device_v2.type WHEN view_device_v2.type = 'Cluster' THEN view_device_v2.type ELSE coalesce(view_hardware_v2.name, view_device_v2.type) END as hw_model,
+                                    case WHEN view_device_v2.hz = 'MHz' and view_device_v2.cpu_speed is not null  THEN view_device_v2.cpu_speed / 1000 ELSE view_device_v2.cpu_speed END as cpuspeed,
+                                    case
+                                        WHEN view_device_v2.ram_size_type = 'MB' and view_device_v2.ram is not null  THEN view_device_v2.ram / 1024
+                                        WHEN view_device_v2.ram_size_type = 'TB' and view_device_v2.ram is not null  THEN view_device_v2.ram * 1024
+                                        ELSE view_device_v2.ram END as ramsize,
+                                    network_ip.ip_address,
+                                    network_ip.public_ip_address,
+                                    network_ip.private_ip_address,
+                                    network_ip.subnet_mask,
+                                    network_hw.hwaddress,
+                                    CEIL(COALESCE(p.total_part_disk_size,
+                                                    CASE
+                                                        WHEN view_device_v2.hard_disk_count IS NOT NULL AND
+                                                             view_device_v2.hard_disk_size IS NOT NULL AND
+                                                             view_device_v2.hard_disk_size_type IS NOT NULL THEN
+                                                                view_device_v2.hard_disk_count *
+                                                                CASE
+                                                                    WHEN view_device_v2.hard_disk_size_type = 'GB' THEN view_device_v2.hard_disk_size
+                                                                    WHEN view_device_v2.hard_disk_size_type = 'TB' THEN view_device_v2.hard_disk_size * 1024
+                                                                    WHEN view_device_v2.hard_disk_size_type = 'PB' THEN view_device_v2.hard_disk_size * 1024 * 1024
+                                                                    ELSE NULL
+                                                                END
+                                                        ELSE NULL
+                                                    END)) AS disk_size,
+                                    warranty.warranty_months + (warranty.warranty_years * 12) as warranty_months,
+                                    warranty.end_date as warranty_end_date,
+                                    warranty.purchase_order_vendor as purchase_order_vendor,
+                                    assetlifecycle.date as acquisition_date,
+                                    asset_endlifecycle.date as end_of_life,
+                                    case when lower(view_device_v2.os_name) like '%windows%' or lower(view_device_v2.os_name) like '%microsoft%' then view_device_v2.os_version_no else view_device_v2.os_version end as device_os_version,
+                                    case when lower(view_device_v2.os_name) like '%windows%' or lower(view_device_v2.os_name) like '%microsoft%' then view_device_v2.os_version else view_device_v2.os_version_no end as device_os_version_no,
+                                    alias.hostname as hostname,
+                                    devicelastlogin.username as last_login_by,
+                                    ci.location as cloud_instance_region,
+                                    ci.location as cloud_instance_location,
+                                    ci.instance_type as cloud_instance_type,
+                                    ci.account as cloud_account,
+                                    ci.image_id as cloud_image_id,
+                                    ci.os_platform as cloud_os_platform,
+                                    subnet.network as subnet,
+                                    vrfgroup.vrfgroup as vrfgroup,
+                                    case
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'amazon ec2 instance')
+                                            or lower(civ.name) similar to '%(aws|amazon)%' THEN 'AWS'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'azure virtual machine')
+                                            or lower(civ.name) similar to '%(azure|microsoft)%' THEN 'AZURE'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'vmware')
+                                            or lower(civ.name) like '%vmware%'
+                                            or (view_device_v2.virtual_host and lower(view_device_v2.os_name) like '%esxi%') then 'VMWARE VCENTER'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'gce')
+                                            or lower(civ.name) similar to '%(google|gce|gcp)%' then 'GCP'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'oracle cloud instance')
+                                            or lower(civ.name) like '%oracle%' then 'Oracle Cloud'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND (lower(view_device_v2.virtualsubtype) = 'citrix/xen'
+                                                or lower(view_device_v2.virtualsubtype) = 'xen'))
+                                            or lower(civ.name) similar to '%(citrix|xen)%'
+                                            or (view_device_v2.virtual_host and lower(view_device_v2.os_name) like '%xenserver%') then 'Citrix'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'hyper-v')
+                                            or (view_device_v2.virtual_host and lower(view_device_v2.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v2.os_name) like '%server%') then 'Hyper-V'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'digitalocean instance')
+                                            or lower(civ.name) similar to '%(digitalocean|digital ocean)%' then 'Digital Ocean'
+                                        WHEN (lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'alibaba cloud instance')
+                                            or lower(civ.name) like '%alibaba%' then 'Alibaba Cloud'
+                                        else null
+                                    end as cloud_vendor,
+                                    ci.instance_id as cloud_instance_id,
+                                    ci.instance_name as cloud_instance_name,
+                                    ci.status as cloud_instance_status,
+                                    device_cluster.device_cluster_name as device_cluster_name,
+                                    mount_point.mountpoint as mountpoint,
+                                    CONCAT_WS(' ',  view_device_v2.os_name, view_device_v2.os_version, view_device_v2.os_version_no) as hypervisor,
+                                    hv.name as hardware_vendor,
+                                    virtual_host_device.datacenter as host_datacenter,
+                                    host_device_cluster.device_cluster_name as host_cluster_name,
+                                	case when view_device_v2.name ~* '^((?!-)[A-Za-z0-9-]{{1,63}}(?&lt;!-)\.)+[A-Za-z]{{2,6}}$' then substring(view_device_v2.name, position('.' in view_device_v2.name)+1)
+	                                else null end domain_name,
+	                                network_port_count.total_port_count as total_port_count
+
+                                FROM view_device_v2
+                                LEFT JOIN view_hardware_v2          on view_device_v2.hardware_fk   = view_hardware_v2.hardware_pk
+                                LEFT JOIN network_ip                on view_device_v2.device_pk     = network_ip.device_fk
+                                LEFT JOIN network_hw                on view_device_v2.device_pk     = network_hw.device_fk
+                                LEFT JOIN total_costs t_cost        on t_cost.device_fk             = device_pk
+                                LEFT OUTER JOIN part_count AS p     ON view_device_v2.device_pk     = p.device_fk
+                                LEFT OUTER JOIN warranty            ON view_device_v2.device_pk     = warranty.device_fk
+                                LEFT OUTER JOIN assetlifecycle      ON view_device_v2.device_pk     = assetlifecycle.device_fk
+                                LEFT OUTER JOIN asset_endlifecycle  ON view_device_v2.device_pk     = asset_endlifecycle.device_fk
+                                LEFT OUTER JOIN alias               ON view_device_v2.device_pk     = alias.device_fk
+                                LEFT OUTER JOIN devicelastlogin     ON view_device_v2.device_pk     = devicelastlogin.device_fk
+                                LEFT JOIN view_cloudinstance_v1 as ci     ON view_device_v2.device_pk     = ci.device_fk
+                                LEFT JOIN view_vendor_v1 as civ     ON ci.vendor_fk     = civ.vendor_pk
+                                LEFT JOIN device_cluster            ON view_device_v2.device_pk     = device_cluster.device_fk
+                                LEFT JOIN mount_point               ON view_device_v2.device_pk     = mount_point.device_fk
+                                LEFT JOIN view_vendor_v1 as hv     ON view_hardware_v2.vendor_fk     = hv.vendor_pk
+                                LEFT JOIN view_device_v2 as virtual_host_device     ON view_device_v2.virtual_host_device_fk     = virtual_host_device.device_pk
+                                LEFT JOIN device_cluster as host_device_cluster     ON virtual_host_device.device_pk     = host_device_cluster.device_fk
+                                LEFT JOIN subnet            ON view_device_v2.device_pk     = subnet.device_fk
+                                LEFT JOIN vrfgroup            ON view_device_v2.device_pk     = vrfgroup.device_fk
+                                LEFT JOIN network_port_count        ON view_device_v2.device_pk     = network_port_count.device_fk
                                "
                         />
             </api>
 
             <mapping callback="from_d42" key="name" source="Devices">
+                <!--  General -->
+                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
+                       target-header="General" not-null="true" min-length="1" max-length="255"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248" escape="true"/>
+                <field resource="notes" source-type="string" target="description" target-header="General"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+                <field resource="end_of_life" source-type="string" target="end_of_life" target-type="date"
+                       target-header="General"/>
+                <!--  ~General -->
+
+                <!--  Hardware -->
                 <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
                        target-header="Hardware">
                     <value-mapping default="Retired">
                         <item key="true" value="In Use"/>
                     </value-mapping>
                 </field>
-                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
-                       target-header="General" not-null="true" min-length="1" max-length="255"/>
-                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
-                       set-space="true" min-length="1" max-length="248"/>
-                <field resource="type" source-type="string" target="asset_type_id" target-type="string"
-                       target-header="General"
-                       target-foregin="asset_types" target-foregin-key="name" target-field="asset_type_id">
-                    <value-mapping default="Server">
-                        <item key="Physical" value="Server"/>
-                        <item key="Virtual" value="Server"/>
-                        <item key="Cluster" value="Server"/>
-                        <item key="Unknown" value="Server"/>
-                    </value-mapping>
-                </field>
-                <field resource="notes" source-type="string" target="description" target-header="General"
-                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
-                <field resource="uuid" type="string" target="uuid"
-                       target-header="Computer" not-null="true" set-space="true"
-                       min-length="1" max-length="255"/>
-                <field resource="cost" type="float" target="cost"
-                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
-                <field resource="ip_address" type="string" target="computer_ip_address"
-                       target-header="Computer" not-null="true" max-length="255"/>
-                <field resource="hwaddress" type="string" target="mac_address"
-                       target-header="Computer" not-null="true" max-length="255"/>
-                <field resource="os_name" source-type="string" target="os" target-type="string"
-                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
-                <field resource="os_version" source-type="string" target="os_version" target-type="string"
-                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
-                <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
-                       target-header="Computer" not-null="true"/>
-                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
-                       not-null="true"
-                       target-header="Computer"/>
                 <field resource="hw_model" source-type="string" target="product" target-type="string"
                        target-header="Hardware"
                        target-foregin="products" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
                 <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
                        target-header="Hardware" not-null="true" set-space="true"
                        min-length="1" max-length="255" error-skip="true"/>
+                <field resource="warranty_months" source-type="integer" target="warranty" target-type="integer"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="warranty_end_date" source-type="string" target="warranty_expiry_date" target-type="date"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="acquisition_date" source-type="string" target="acquisition_date" target-type="date"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="domain_name" source-type="string" target="domain" target-type="string"
+                       target-header="Hardware" not-null="true" required="True" max-length="255"
+                />
+                <field resource="last_discovered" source-type="string" target="last_audit_date" target-type="date"
+                       target-header="Hardware" not-null="true"/>
+                <!-- Temporally don't map the vendor, because there is no way to sync the products and vendors using api right now.
+                <field resource="purchase_order_vendor" source-type="string" target="vendor" target-type="string"
+                       target-header="Hardware"
+                       target-foregin="vendors" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
+                       -->
+                <!--  ~Hardware -->
+
+                <!--  Cost -->
+                <field resource="cost" type="float" target="cost"
+                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
+                <!--  ~Cost -->
+
+                <!--  Computer -->
+                <field resource="uuid" type="string" target="uuid"
+                       target-header="Computer" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="computer_ip_address"
+                       target-header="Computer" not-null="true" max-length="255"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Computer" not-null="true" max-length="255"/>
+                <field resource="os_name" source-type="string" target="os" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="device_os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="device_os_version_no" source-type="string" target="os_service_pack" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="hostname" source-type="string" target="hostname" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="last_login_by" source-type="string" target="last_login_by" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
+                       target-header="Computer" not-null="true"/>
+                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                       not-null="true"
+                       target-header="Computer"/>
                 <field resource="ramsize" source-type="float" target="memory" target-type="float"
                        target-header="Computer" not-null="true" />
                 <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
                        target-header="Computer" not-null="true" />
+                <!--  ~Computer -->
+
+                <!--  Cloud -->
+                <field resource="cost" type="float" target="cloud_cost"
+                       target-header="Cloud" target-type="float" not-null="true" set-zero="true"/>
+                <field resource="cloud_instance_region" source-type="string" target="region" target-type="dropdown"
+                       target-header="Cloud" not-null="true" min-length="1" max-length="255"/>
+                <field resource="cloud_instance_location" source-type="string" target="cd_availability_zone" target-type="dropdown"
+                       target-header="Cloud" not-null="true" min-length="1" max-length="255"/>
+                <field resource="cloud_vendor" source-type="string" target="provider_type" target-type="string"
+                       target-header="Cloud" not-null="true"/>
+                <field resource="last_discovered" source-type="string" target="cloud_last_audit_date" target-type="date"
+                       target-header="Cloud" not-null="true"/>
+                <!--  ~Cloud -->
+
+                <!--  Host -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Host" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Host" not-null="true"/>
+                <field resource="ramsize" source-type="float" target="memory_size" target-type="float"
+                       target-header="Host" not-null="true" />
+                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                       not-null="true"
+                       target-header="Host"/>
+                <field resource="disk_size" source-type="integer" target="total_disk_size" target-type="integer"
+                       target-header="Host" not-null="true" />
+                <field resource="cloud_instance_status" source-type="string" target="state" target-type="string"
+                       target-header="Host">
+                    <value-mapping default="Unknown">
+                        <item key="Running" value="Powered On"/>
+                        <item key="Stopped" value="Powered Off"/>
+                    </value-mapping>
+                </field>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Host" not-null="true" max-length="255"/>
+                <!--  ~Host -->
+
+                <!--  VMware VCenter Host -->
+                <field resource="datacenter" type="string" target="datacenter"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="device_cluster_name" type="string" target="cluster"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="mountpoint" type="string" target="datastore"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="hypervisor" type="string" target="hypervisor"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
+                       target-header="VMware VCenter Host" not-null="true"/>
+                <field resource="os_name" source-type="string" target="os_type" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="uuid" type="string" target="instance_uuid"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="serial_no" source-type="string" target="cd_serial_number" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <field resource="hardware_vendor" source-type="string" target="hardware_vendor" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <!--  ~VMware VCenter Host -->
+
+                <!--  Virtual Machine -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Virtual Machine" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Virtual Machine" not-null="true"/>
+                <field resource="cloud_instance_type" source-type="string" target="cd_instance_type" target-type="dropdown"
+                       target-header="Virtual Machine" not-null="true" min-length="1" max-length="255"/>
+                <field resource="public_ip_address" type="string" target="public_address"
+                       target-header="Virtual Machine" not-null="true" max-length="255"/>
+                <field resource="private_ip_address" type="string" target="private_address"
+                       target-header="Virtual Machine" not-null="true" max-length="255"/>
+                <field resource="cloud_instance_status" source-type="string" target="vm_state" target-type="string"
+                       target-header="Virtual Machine">
+                    <value-mapping default="Unknown">
+                        <item key="Running" value="Running"/>
+                        <item key="Stopped" value="Stopped"/>
+                    </value-mapping>
+                </field>
+                <field resource="os_name" source-type="string" target="os_name" target-type="string"
+                       target-header="Virtual Machine" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~Virtual Machine -->
+
+                <!-- VMWare VCenter VM -->
+                <field resource="hostname" source-type="string" target="hostname" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="mountpoint" type="string" target="datastore"
+                       target-header="VMware VCenter VM" not-null="true" max-length="255"/>
+                <field resource="ramsize" source-type="float" target="memory_size" target-type="float"
+                       target-header="VMware VCenter VM" not-null="true" />
+                <field resource="total_cpucore" source-type="integer" target="num_of_cpu" target-type="integer"
+                       not-null="true"
+                       target-header="VMware VCenter VM"/>
+                <field resource="uuid" type="string" target="instance_uuid"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="host_datacenter" source-type="string" target="datacenter" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="host_cluster_name" source-type="string" target="cluster" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~VMWare VCenter VM -->
+
+                <!-- AWS VM -->
+                <field resource="cloud_account" source-type="string" target="account_id" target-type="integer"
+                       target-header="AWS VM" not-null="true"/>
+                <field resource="cloud_instance_id" source-type="string" target="cd_instance_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cloud_image_id" source-type="string" target="image_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cloud_os_platform" source-type="string" target="platform" target-type="dropdown"
+                       target-header="AWS VM"/>
+                <field resource="subnet" source-type="string" target="subnet_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="vrfgroup" source-type="string" target="vpc_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~AWS VM -->
+
+                <!-- Azure VM -->
+                <field resource="cloud_account" source-type="string" target="subscription_id" target-type="string"
+                       target-header="Azure VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="hostname" source-type="string" target="computer_name" target-type="string"
+                       target-header="Azure VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~Azure VM -->
+
+                <!-- Printer -->
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <!-- ~Printer -->
+
+                <!-- Router -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Router" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Router" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Router" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <!-- ~Router -->
+
+                <!-- Firewall -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Firewall" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Firewall" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Firewall" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <!-- ~Firewall -->
+
+                <!--  Load Balancer -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Load Balancer" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Load Balancer" not-null="true"/>
+                <!--  ~Load Balancer -->
+
+                <!-- Switch -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Switch" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Switch" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Switch" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <!-- ~Switch -->
             </mapping>
+            <unmapping callback="from_d42" key="name" source="Devices">
+                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
+                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
+                <field resource="device_subtype" source-type="string" display-name="Device Subtype"/>
+            </unmapping>
             <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
         </task>
 
-        <task enable="false" description="Copy Servers from Device42 to FreshService using DOQL v1" d42_max_version="16.18.02">
+        <task enable="false" name="Devices" description="Copy Servers from Device42 to FreshService using DOQL v1" d42_max_version="16.18.02">
             <api>
-                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"
-                        asset-type="Server"/>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
                           doql="
+                                WITH
+                                devicelastlogin AS (
+                                    with sub as ( SELECT dll.device_fk, dll.username, ROW_NUMBER() OVER(PARTITION BY dll.device_fk ORDER BY dll.last_login DESC) AS rank FROM view_devicelastlogin_v1 dll )
+                                    SELECT *   FROM sub  WHERE rank = 1 )
+
+                                ,alias as ( SELECT device_fk,  string_agg(alias_name, ', ' order by alias_name) as hostname FROM view_devicealias_v1 GROUP BY device_fk)
+
+                                ,assetlifecycle AS (
+                                    with sub as  (
+                                        SELECT alc.device_fk, alc.date,
+                                            ROW_NUMBER() OVER(PARTITION BY alc.device_fk ORDER BY alc.date DESC) AS rank
+                                        FROM view_assetlifecycle_v1 alc
+                                        INNER JOIN view_assetaction_v1 aaction ON alc.assetaction_fk = aaction.assetaction_pk WHERE aaction.name = 'Purchased')
+                                    SELECT *   FROM sub  WHERE rank = 1    )
+
+                                ,asset_endlifecycle AS (
+                                    with sub as  (
+                                        SELECT alc.device_fk, to_char(alc.date, 'YYYY-MM-DD') as date,
+                                            ROW_NUMBER() OVER(PARTITION BY alc.device_fk ORDER BY alc.date) AS rank
+                                        FROM view_assetlifecycle_v1 alc
+                                        INNER JOIN view_assetaction_v1 aaction ON alc.assetaction_fk = aaction.assetaction_pk WHERE aaction.name = 'Retired')
+                                    SELECT *   FROM sub  WHERE rank = 1    )
+
+                                ,warranty AS (
+                                    with sub as (
+                                                SELECT plid.device_fk, pli.start_date, pli.end_date,
+                                                    extract(year from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) warranty_years,
+                                                    extract(month from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) + case when extract(day from age(pli.end_date, CASE WHEN lower(ven.name)='meraki' and pli.start_date='1970-01-01' THEN null else pli.start_date end)) > 0 then 1 else 0 end  warranty_months,
+                                                    ven.name as purchase_order_vendor,
+                                                    ROW_NUMBER() OVER(PARTITION BY plid.device_fk ORDER BY pli.end_date DESC) AS rank
+                                                FROM view_purchaselineitems_to_devices_v1 plid
+                                                INNER JOIN view_purchaselineitem_v1 pli ON plid.purchaselineitem_fk = pli.purchaselineitem_pk
+                                                LEFT JOIN view_purchase_v1 pur ON pli.purchase_fk = pur.purchase_pk
+                                                LEFT JOIN view_vendor_v1 ven ON pur.vendor_fk=ven.vendor_pk
+                                                WHERE lower(pli.line_type) = 'contract'
+                                                    and ( lower(pli.contract_type_name) = 'warranty'
+                                                            or ( lower(pli.contract_type_name) in ('base', 'upgrade') and lower(ven.name) in ('ibm', 'lenovo'))
+                                                        )
+                                                      and pli.end_date is not null
+                                                )
+                                       SELECT *  FROM sub  WHERE rank = 1 )
+
+                                ,part_count as (
+                                    SELECT p.device_fk,
+                                         SUM(p.pcount *
+                                             CASE
+                                               WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
+                                               WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
+                                               WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
+                                               WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
+                                               ELSE NULL
+                                             END) AS total_part_disk_size
+                                         FROM view_part_v1 p
+                                         INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
+                                         WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
+                                         GROUP BY p.device_fk )
+
+                                ,network_port_count as (
+                                    SELECT p.device_fk,
+                                         count(*) AS total_port_count
+                                         from (
+                                            select device_fk, hwaddress from view_netport_v1 where device_fk is not null
+                                            union
+                                            select second_device_fk as device_fk, hwaddress from view_netport_v1 where second_device_fk is not null
+                                            ) p
+                                         WHERE p.device_fk is not null
+                                         GROUP BY p.device_fk )
+
+                                ,total_costs as (
+                                    select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk  group by device_fk)
+
+                                ,network_hw as (
+                                    select device_fk,
+                                        string_agg(
+                                            CASE
+                                                WHEN LENGTH(TRIM(netport.hwaddress)) = 12
+                                                THEN CONCAT_WS(':',left(TRIM(netport.hwaddress),2), substring(TRIM(netport.hwaddress),3,2), substring(TRIM(netport.hwaddress),5,2), substring(TRIM(netport.hwaddress),7,2), substring(TRIM(netport.hwaddress),9,2), right(TRIM(netport.hwaddress),2))
+                                                ELSE
+                                                    netport.hwaddress
+                                                END, ', '
+                                                order by netport.hwaddress) as hwaddress
+												from (
+													select device_fk, hwaddress from view_netport_v1 where device_fk is not null
+													union
+													select second_device_fk as device_fk, hwaddress from view_netport_v1 where second_device_fk is not null
+													) netport
+                                                where (netport.hwaddress is not null AND LENGTH(TRIM(netport.hwaddress)) > 0)
+                                                group by netport.device_fk    )
+
+                                ,network_ip as (
+                                    select
+                                        vip.device_fk,
+                                        string_agg(host(vip.ip_address)::character varying, ', ' order by vip.ip_address) as ip_address,
+                                        string_agg(case when vip.ip_address &lt;&lt; inet '10/8' or vip.ip_address &lt;&lt; inet '192/8' or vip.ip_address &lt;&lt; inet '172.16/12' then
+                                            host(vip.ip_address)::character varying
+                                            else null end, ', ' order by vip.ip_address) as private_ip_address,
+                                        string_agg(case when vip.ip_address &lt;&lt; inet '10/8' or vip.ip_address &lt;&lt; inet '192/8' or vip.ip_address &lt;&lt; inet '172.16/12' then null
+                                            else host(vip.ip_address)::character varying end, ', ' order by vip.ip_address) as public_ip_address,
+                                        string_agg(host(vip.subnet_mask)::character varying, ', ' order by vip.ip_address) as subnet_mask
+                                        from (select distinct device_fk, ip_address, netmask(set_masklen(view_subnet_v1.network, view_subnet_v1.mask_bits)) as subnet_mask
+                                            from view_ipaddress_v1 left join view_subnet_v1 on view_ipaddress_v1.subnet_fk = view_subnet_v1.subnet_pk) vip group by vip.device_fk)
+
+                                ,subnet as (
+                                    select
+                                        vn.device_fk,
+                                        string_agg(host(vn.network)::character varying, ', ' order by vn.network) as network
+                                        from (select distinct device_fk, network from view_ipaddress_v1 left join view_subnet_v1 on subnet_pk=subnet_fk) vn group by vn.device_fk)
+
+                                ,vrfgroup as (
+                                    select
+                                        vn.device_fk,
+                                        string_agg(vn.vrfgroup, ', ' order by vn.vrfgroup) as vrfgroup
+                                        from (select distinct device_fk, view_vrfgroup_v1.name as vrfgroup from view_ipaddress_v1
+                                        left join view_subnet_v1 on subnet_pk=subnet_fk
+                                        left join view_vrfgroup_v1 on vrfgroup_pk=vrfgroup_fk) vn group by vn.device_fk)
+
+                                ,device_cluster AS (
+                                    SELECT device_cluster.child_device_fk device_fk,
+                                        string_agg(device_cluster.parent_device_name, ', ' order by device_cluster.parent_device_name) as device_cluster_name
+                                        FROM view_devices_in_cluster_v1 device_cluster group by device_cluster.child_device_fk)
+
+                                ,mount_point as (
+                                    select mp.device_fk,  string_agg(mp.mountpoint, ', ' order by mp.mountpoint) as mountpoint from view_mountpoint_v1 mp group by mp.device_fk)
+
                                 select view_device_v1.*,
-                                cpucount * cpucore as total_cpucore,
-                                t_cost.cost,
-                                view_vendor_v1.name as manufacturer,
-                                case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as hw_model,
-                                case WHEN view_device_v1.hz = 'MHz' and view_device_v1.cpupower is not null  THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END as cpuspeed,
-                                case WHEN view_device_v1.ram_size_type = 'MB' and view_device_v1.ram is not null  THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' and view_device_v1.ram is not null  THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END as ramsize,
-                                network_ip.ip_address, network_hw.hwaddress,
-                                CEIL(COALESCE(p.total_part_disk_size,
-                                                CASE
-                                                    WHEN view_device_v1.hard_disk_count IS NOT NULL AND
-                                                         view_device_v1.hard_disk_size IS NOT NULL AND
-                                                         view_device_v1.hard_disk_size_type IS NOT NULL THEN
-                                                            view_device_v1.hard_disk_count *
-                                                            CASE
-                                                                WHEN view_device_v1.hard_disk_size_type = 'GB' THEN view_device_v1.hard_disk_size
-                                                                WHEN view_device_v1.hard_disk_size_type = 'TB' THEN view_device_v1.hard_disk_size * 1024
-                                                                WHEN view_device_v1.hard_disk_size_type = 'PB' THEN view_device_v1.hard_disk_size * 1024 * 1024
-                                                                ELSE NULL
-                                                            END
-                                                    ELSE NULL
-                                                END)) AS disk_size
-                                from view_device_v1 left join view_hardware_v1 on view_device_v1.hardware_fk = view_hardware_v1.hardware_pk left join  (select view_ipaddress_v1.device_fk,  string_agg(host(view_ipaddress_v1.ip_address)::character varying, ', ' order by view_ipaddress_v1.ip_address) as ip_address from view_ipaddress_v1 group by view_ipaddress_v1.device_fk) network_ip on view_device_v1.device_pk=network_ip.device_fk
-                                left join (select device_fk, string_agg(
-                                    CASE
-                                        WHEN LENGTH(TRIM(view_netport_v1.hwaddress)) = 12
-                                        THEN CONCAT_WS(':',left(TRIM(view_netport_v1.hwaddress),2), substring(TRIM(view_netport_v1.hwaddress),3,2), substring(TRIM(view_netport_v1.hwaddress),5,2), substring(TRIM(view_netport_v1.hwaddress),7,2), substring(TRIM(view_netport_v1.hwaddress),9,2), right(TRIM(view_netport_v1.hwaddress),2))
-                                        ELSE
-                                            view_netport_v1.hwaddress
-                                        END, ', ' order by view_netport_v1.hwaddress) as hwaddress from view_netport_v1 where (view_netport_v1.hwaddress is not null AND LENGTH(TRIM(view_netport_v1.hwaddress)) > 0) group by view_netport_v1.device_fk) network_hw on view_device_v1.device_pk=network_hw.device_fk
-                                    left join (select device_fk, sum(cost) as cost from view_purchaselineitem_v1 left join view_purchaselineitems_to_devices_v1 on purchaselineitem_fk = purchaselineitem_pk group by device_fk) t_cost on t_cost.device_fk=device_pk left join view_vendor_v1 on vendor_pk=vendor_fk
-                                LEFT OUTER JOIN (
-                                   SELECT p.device_fk,
-                                     SUM(p.pcount *
-                                         CASE
-                                           WHEN pm.hdsize_unit = 'GB' THEN pm.hdsize
-                                           WHEN pm.hdsize_unit = 'TB' THEN pm.hdsize * 1024
-                                           WHEN pm.hdsize_unit = 'PB' THEN pm.hdsize * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'EB' THEN pm.hdsize * 1024 * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'ZB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024
-                                           WHEN pm.hdsize_unit = 'YB' THEN pm.hdsize * 1024 * 1024 * 1024 * 1024 * 1024
-                                           ELSE NULL
-                                         END) AS total_part_disk_size
-                                     FROM view_part_v1 p
-                                     INNER JOIN view_partmodel_v1 pm ON p.partmodel_fk = pm.partmodel_pk
-                                     WHERE pm.type_id = 3 AND pm.hdsize IS NOT NULL AND p.pcount > 0 AND p.device_fk IS NOT NULL
-                                     GROUP BY p.device_fk
-                                 ) AS p ON view_device_v1.device_pk = p.device_fk
+                                    case
+                                        WHEN lower(view_device_v1.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
+                                        WHEN view_device_v1.network_device THEN 'Switch'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v1.os_name) like '%server%' THEN 'Windows Server'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Unix Server'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(aix)%' THEN 'AIX Server'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Solaris Server'
+                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v1.virtual_host THEN 'Host'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'vmware' THEN 'VMware VCenter VM'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'amazon ec2 instance' THEN 'AWS VM'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'azure virtual machine' THEN 'Azure VM'
+                                        WHEN lower(view_device_v1.type) = 'physical' THEN 'Server'
+                                        WHEN lower(view_device_v1.type) = 'virtual' THEN 'Virtual Machine'
+                                        ELSE 'Computer'
+                                    END as asset_type,
+                                    view_device_v1.cpucount * view_device_v1.cpucore as total_cpucore,
+                                    t_cost.cost,
+                                    case WHEN view_device_v1.type = 'Virtual' THEN view_device_v1.type WHEN view_device_v1.type = 'Cluster' THEN view_device_v1.type ELSE coalesce(view_hardware_v1.name, view_device_v1.type) END as hw_model,
+                                    case WHEN view_device_v1.hz = 'MHz' and view_device_v1.cpupower is not null  THEN view_device_v1.cpupower / 1000 ELSE view_device_v1.cpupower END as cpuspeed,
+                                    case WHEN view_device_v1.ram_size_type = 'MB' and view_device_v1.ram is not null  THEN view_device_v1.ram / 1024 WHEN view_device_v1.ram_size_type = 'TB' and view_device_v1.ram is not null  THEN view_device_v1.ram * 1024 ELSE view_device_v1.ram END as ramsize,
+                                    network_ip.ip_address, network_ip.public_ip_address, network_ip.private_ip_address, network_ip.subnet_mask, network_hw.hwaddress,
+                                    CEIL(COALESCE(p.total_part_disk_size,
+                                                    CASE
+                                                        WHEN view_device_v1.hard_disk_count IS NOT NULL AND
+                                                             view_device_v1.hard_disk_size IS NOT NULL AND
+                                                             view_device_v1.hard_disk_size_type IS NOT NULL THEN
+                                                                view_device_v1.hard_disk_count *
+                                                                CASE
+                                                                    WHEN view_device_v1.hard_disk_size_type = 'GB' THEN view_device_v1.hard_disk_size
+                                                                    WHEN view_device_v1.hard_disk_size_type = 'TB' THEN view_device_v1.hard_disk_size * 1024
+                                                                    WHEN view_device_v1.hard_disk_size_type = 'PB' THEN view_device_v1.hard_disk_size * 1024 * 1024
+                                                                    ELSE NULL
+                                                                END
+                                                        ELSE NULL
+                                                    END)) AS disk_size,
+                                    warranty.warranty_months + (warranty.warranty_years * 12) as warranty_months,
+                                    warranty.end_date as warranty_end_date,
+                                    warranty.purchase_order_vendor as purchase_order_vendor,
+                                    assetlifecycle.date as acquisition_date,
+                                    asset_endlifecycle.date as end_of_life,
+                                    case when lower(view_device_v1.os_name) like '%windows%' or lower(view_device_v1.os_name) like '%microsoft%' then view_device_v1.os_version_no else view_device_v1.os_version end as device_os_version,
+                                    case when lower(view_device_v1.os_name) like '%windows%' or lower(view_device_v1.os_name) like '%microsoft%' then view_device_v1.os_version else view_device_v1.os_version_no end as device_os_version_no,
+                                    alias.hostname as hostname,
+                                    devicelastlogin.username as last_login_by,
+                                    case
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'amazon ec2 instance')
+                                            or lower(civ.name) similar to '%(aws|amazon)%' THEN 'AWS'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'azure virtual machine')
+                                            or lower(civ.name) similar to '%(azure|microsoft)%' THEN 'AZURE'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'vmware')
+                                            or lower(civ.name) like '%vmware%'
+                                            or (view_device_v1.virtual_host and lower(view_device_v1.os_name) like '%esxi%') then 'VMWARE VCENTER'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'gce')
+                                            or lower(civ.name) similar to '%(google|gce|gcp)%' then 'GCP'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'oracle cloud instance')
+                                            or lower(civ.name) like '%oracle%' then 'Oracle Cloud'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND (lower(view_device_v1.virtual_subtype) = 'citrix/xen'
+                                                or lower(view_device_v1.virtual_subtype) = 'xen'))
+                                            or lower(civ.name) similar to '%(citrix|xen)%'
+                                            or (view_device_v1.virtual_host and lower(view_device_v1.os_name) like '%xenserver%') then 'Citrix'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'hyper-v')
+                                            or (view_device_v1.virtual_host and lower(view_device_v1.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v1.os_name) like '%server%') then 'Hyper-V'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'digitalocean instance')
+                                            or lower(civ.name) similar to '%(digitalocean|digital ocean)%' then 'Digital Ocean'
+                                        WHEN (lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'alibaba cloud instance')
+                                            or lower(civ.name) like '%alibaba%' then 'Alibaba Cloud'
+                                        else null
+                                    end as cloud_vendor,
+                                    ci.instance_name as cloud_instance_name,
+                                    ci.instance_type as cloud_instance_type,
+                                    ci.account as cloud_account,
+                                    ci.image_id as cloud_image_id,
+                                    ci.os_platform as cloud_os_platform,
+                                    subnet.network as subnet,
+                                    vrfgroup.vrfgroup as vrfgroup,
+                                    view_device_v1.cloud_location as cloud_region,
+                                    device_cluster.device_cluster_name as device_cluster_name,
+                                    mount_point.mountpoint as mountpoint,
+                                    CONCAT_WS(' ',  view_device_v1.os_name, view_device_v1.os_version, view_device_v1.os_version_no) as hypervisor,
+                                    hv.name as hardware_vendor,
+                                    virtual_host_device.datacenter as host_datacenter,
+                                    host_device_cluster.device_cluster_name as host_cluster_name,
+                                	case when view_device_v1.name ~* '^((?!-)[A-Za-z0-9-]{{1,63}}(?&lt;!-)\.)+[A-Za-z]{{2,6}}$' then substring(view_device_v1.name, position('.' in view_device_v1.name)+1)
+	                                else null end domain_name,
+	                                network_port_count.total_port_count as total_port_count
+                                FROM view_device_v1
+                                LEFT JOIN view_hardware_v1          on view_device_v1.hardware_fk   = view_hardware_v1.hardware_pk
+                                LEFT JOIN network_ip                on view_device_v1.device_pk     = network_ip.device_fk
+                                LEFT JOIN network_hw                on view_device_v1.device_pk     = network_hw.device_fk
+                                LEFT JOIN total_costs t_cost        on t_cost.device_fk             = device_pk
+                                LEFT OUTER JOIN part_count AS p     ON view_device_v1.device_pk     = p.device_fk
+                                LEFT OUTER JOIN warranty            ON view_device_v1.device_pk     = warranty.device_fk
+                                LEFT OUTER JOIN assetlifecycle      ON view_device_v1.device_pk     = assetlifecycle.device_fk
+                                LEFT OUTER JOIN asset_endlifecycle  ON view_device_v1.device_pk     = asset_endlifecycle.device_fk
+                                LEFT OUTER JOIN alias               ON view_device_v1.device_pk     = alias.device_fk
+                                LEFT OUTER JOIN devicelastlogin     ON view_device_v1.device_pk     = devicelastlogin.device_fk
+                                LEFT JOIN view_cloudinstance_v1 as ci     ON view_device_v1.device_pk     = ci.device_fk
+                                LEFT JOIN view_vendor_v1 as civ     ON view_device_v1.cloud_vendor_fk     = civ.vendor_pk
+                                LEFT JOIN device_cluster            ON view_device_v1.device_pk     = device_cluster.device_fk
+                                LEFT JOIN mount_point               ON view_device_v1.device_pk     = mount_point.device_fk
+                                LEFT JOIN view_vendor_v1 as hv     ON view_hardware_v1.vendor_fk     = hv.vendor_pk
+                                LEFT JOIN view_device_v1 as virtual_host_device     ON view_device_v1.virtual_host_device_fk     = virtual_host_device.device_pk
+                                LEFT JOIN device_cluster as host_device_cluster     ON virtual_host_device.device_pk     = host_device_cluster.device_fk
+                                LEFT JOIN subnet            ON view_device_v1.device_pk     = subnet.device_fk
+                                LEFT JOIN vrfgroup            ON view_device_v1.device_pk     = vrfgroup.device_fk
+                                LEFT JOIN network_port_count        ON view_device_v1.device_pk     = network_port_count.device_fk
                                 "
                         />
             </api>
 
             <mapping callback="from_d42" key="name" source="Devices">
+                <!--  General -->
+                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
+                       target-header="General" not-null="true" min-length="1" max-length="255"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248" escape="true"/>
+                <field resource="notes" source-type="string" target="description" target-header="General"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+                <field resource="end_of_life" source-type="string" target="end_of_life" target-type="date"
+                       target-header="General"/>
+                <!--  ~General -->
+
+                <!--  Hardware -->
                 <field resource="in_service" source-type="boolean" target="asset_state" target-type="string"
                        target-header="Hardware">
                     <value-mapping default="Retired">
                         <item key="true" value="In Use"/>
                     </value-mapping>
                 </field>
-                <field resource="asset_no" source-type="string" target="asset_tag" target-type="string"
-                       target-header="General" not-null="true" min-length="1" max-length="255"/>
-                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
-                       set-space="true" min-length="1" max-length="248"/>
-                <field resource="type" source-type="string" target="asset_type_id" target-type="string"
-                       target-header="General"
-                       target-foregin="asset_types" target-foregin-key="name" target-field="asset_type_id">
-                    <value-mapping default="Server">
-                        <item key="Physical" value="Server"/>
-                        <item key="Virtual" value="Server"/>
-                        <item key="Blade" value="Server"/>
-                        <item key="Cluster" value="Server"/>
-                        <item key="Unknown" value="Server"/>
-                        <item key="Other" value="Server"/>
-                    </value-mapping>
-                </field>
-                <field resource="notes" source-type="string" target="description" target-header="General"
-                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+                <field resource="hw_model" source-type="string" target="product" target-type="string"
+                       target-header="Hardware"
+                       target-foregin="products" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
+                <!-- Temporally don't map the vendor, because there is no way to sync the products and vendors using api right now.
+                <field resource="purchase_order_vendor" source-type="string" target="vendor" target-type="string"
+                       target-header="Hardware"
+                       target-foregin="vendors" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
+                       -->
+                <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
+                       target-header="Hardware" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <field resource="warranty_months" source-type="integer" target="warranty" target-type="integer"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="warranty_end_date" source-type="string" target="warranty_expiry_date" target-type="date"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="acquisition_date" source-type="string" target="acquisition_date" target-type="date"
+                       target-header="Hardware" not-null="true"/>
+                <field resource="domain_name" source-type="string" target="domain" target-type="string"
+                       target-header="Hardware" not-null="true" required="True" max-length="255"
+                />
+                <!--  ~Hardware -->
+
+                <!--  Cost -->
+                <field resource="cost" type="float" target="cost"
+                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
+                <!--  ~Cost -->
+
+                <!--  Computer -->
                 <field resource="uuid" type="string" target="uuid"
                        target-header="Computer" not-null="true" set-space="true"
                        min-length="1" max-length="255"/>
-                <field resource="cost" type="float" target="cost"
-                       target-header="Cost" target-type="float" not-null="true" set-zero="true"/>
                 <field resource="ip_address" type="string" target="computer_ip_address"
                        target-header="Computer" not-null="true" max-length="255"/>
                 <field resource="hwaddress" type="string" target="mac_address"
                        target-header="Computer" not-null="true" max-length="255"/>
                 <field resource="os_name" source-type="string" target="os" target-type="string"
                        target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
-                <field resource="os_version" source-type="string" target="os_version" target-type="string"
+                <field resource="device_os_version" source-type="string" target="os_version" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="device_os_version_no" source-type="string" target="os_service_pack" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="hostname" source-type="string" target="hostname" target-type="string"
+                       target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="last_login_by" source-type="string" target="last_login_by" target-type="string"
                        target-header="Computer" not-null="true" set-space="true" min-length="1" max-length="255"/>
                 <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
                        target-header="Computer" not-null="true"/>
                 <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
                        not-null="true"
                        target-header="Computer"/>
-                <field resource="hw_model" source-type="string" target="product" target-type="string"
-                       target-header="Hardware"
-                       target-foregin="products" target-foregin-key="name" not-null="true" required="True" max-length="255"/>
-                <field resource="serial_no" source-type="string" target="serial_number" target-type="string"
-                       target-header="Hardware" not-null="true" set-space="true"
-                       min-length="1" max-length="255" error-skip="true"/>
                 <field resource="ramsize" source-type="float" target="memory" target-type="float"
                        target-header="Computer" not-null="true" />
                 <field resource="disk_size" source-type="integer" target="disk_space" target-type="integer"
                        target-header="Computer" not-null="true" />
+                <!--  ~Computer -->
+
+                <!--  Cloud -->
+                <field resource="cost" type="float" target="cloud_cost"
+                       target-header="Cloud" target-type="float" not-null="true" set-zero="true"/>
+                <field resource="cloud_region" source-type="string" target="region" target-type="dropdown"
+                       target-header="Cloud" not-null="true" min-length="1" max-length="255"/>
+                <field resource="cloud_location" source-type="string" target="cd_availability_zone" target-type="dropdown"
+                       target-header="Cloud" not-null="true" min-length="1" max-length="255"/>
+                <field resource="cloud_vendor" source-type="string" target="provider_type" target-type="dropdown"
+                       target-header="Cloud" not-null="true"/>
+                <!--  ~Cloud -->
+
+                <!--  Host -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Host" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Host" not-null="true"/>
+                <field resource="ramsize" source-type="float" target="memory_size" target-type="float"
+                       target-header="Host" not-null="true" />
+                <field resource="total_cpucore" source-type="integer" target="cpu_core_count" target-type="integer"
+                       not-null="true"
+                       target-header="Host"/>
+                <field resource="disk_size" source-type="integer" target="total_disk_size" target-type="integer"
+                       target-header="Host" not-null="true" />
+                <field resource="cloud_status" source-type="string" target="state" target-type="string"
+                       target-header="Host">
+                    <value-mapping default="Unknown">
+                        <item key="Running" value="Powered On"/>
+                        <item key="Stopped" value="Powered Off"/>
+                    </value-mapping>
+                </field>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Host" not-null="true" max-length="255"/>
+                <!--  ~Host -->
+
+                <!--  VMware VCenter Host -->
+                <field resource="datacenter" type="string" target="datacenter"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="device_cluster_name" type="string" target="cluster"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="mountpoint" type="string" target="datastore"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="hypervisor" type="string" target="hypervisor"
+                       target-header="VMware VCenter Host" not-null="true" max-length="255"/>
+                <field resource="cpuspeed" source-type="float" target="cpu_speed" target-type="float"
+                       target-header="VMware VCenter Host" not-null="true"/>
+                <field resource="os_name" source-type="string" target="os_type" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="uuid" type="string" target="instance_uuid"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="serial_no" source-type="string" target="cd_serial_number" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <field resource="hardware_vendor" source-type="string" target="hardware_vendor" target-type="string"
+                       target-header="VMware VCenter Host" not-null="true" set-space="true"
+                       min-length="1" max-length="255" error-skip="true"/>
+                <!--  ~VMware VCenter Host -->
+
+                <!-- Virtual Machine -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Virtual Machine" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Virtual Machine" not-null="true"/>
+                <field resource="cloud_instance_type" source-type="string" target="cd_instance_type" target-type="dropdown"
+                       target-header="Virtual Machine" not-null="true" min-length="1" max-length="255"/>
+                <field resource="public_ip_address" type="string" target="public_address"
+                       target-header="Virtual Machine" not-null="true" max-length="255"/>
+                <field resource="private_ip_address" type="string" target="private_address"
+                       target-header="Virtual Machine" not-null="true" max-length="255"/>
+                <field resource="cloud_status" source-type="string" target="vm_state" target-type="string"
+                       target-header="Virtual Machine">
+                    <value-mapping default="Unknown">
+                        <item key="Running" value="Running"/>
+                        <item key="Stopped" value="Stopped"/>
+                    </value-mapping>
+                </field>
+                <field resource="os_name" source-type="string" target="os_name" target-type="string"
+                       target-header="Virtual Machine" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~Virtual Machine -->
+
+                <!-- VMWare VCenter VM -->
+                <field resource="hostname" source-type="string" target="hostname" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="mountpoint" type="string" target="datastore"
+                       target-header="VMware VCenter VM" not-null="true" max-length="255"/>
+                <field resource="ramsize" source-type="float" target="memory_size" target-type="float"
+                       target-header="VMware VCenter VM" not-null="true" />
+                <field resource="total_cpucore" source-type="integer" target="num_of_cpu" target-type="integer"
+                       not-null="true"
+                       target-header="VMware VCenter VM"/>
+                <field resource="uuid" type="string" target="instance_uuid"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true"
+                       min-length="1" max-length="255"/>
+                <field resource="host_datacenter" source-type="string" target="datacenter" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="host_cluster_name" source-type="string" target="cluster" target-type="string"
+                       target-header="VMware VCenter VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~VMWare VCenter VM -->
+
+                <!-- AWS VM -->
+                <field resource="cloud_account" source-type="string" target="account_id" target-type="integer"
+                       target-header="AWS VM" not-null="true"/>
+                <field resource="cloud_instance_id" source-type="string" target="cd_instance_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cloud_image_id" source-type="string" target="image_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="cloud_os_platform" source-type="string" target="platform" target-type="dropdown"
+                       target-header="AWS VM"/>
+                <field resource="subnet" source-type="string" target="subnet_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="vrfgroup" source-type="string" target="vpc_id" target-type="string"
+                       target-header="AWS VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~AWS VM -->
+
+                <!-- Azure VM -->
+                <field resource="cloud_account" source-type="string" target="subscription_id" target-type="string"
+                       target-header="Azure VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="hostname" source-type="string" target="computer_name" target-type="string"
+                       target-header="Azure VM" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <!-- ~Azure VM -->
+
+                <!-- Printer -->
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Printer" not-null="true" max-length="255"/>
+                <!-- ~Printer -->
+
+                <!-- Router -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Router" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Router" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Router" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Router" not-null="true" max-length="255"/>
+                <!-- ~Router -->
+
+                <!-- Firewall -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Firewall" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Firewall" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Firewall" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Firewall" not-null="true" max-length="255"/>
+                <!-- ~Firewall -->
+
+                <!--  Load Balancer -->
+                <field resource="cloud_instance_id" source-type="string" target="item_id" target-type="string"
+                       target-header="Load Balancer" not-null="true" error-skip="true"/>
+                <field resource="cloud_instance_name" source-type="string" target="item_name" target-type="string"
+                       target-header="Load Balancer" not-null="true"/>
+                <!--  ~Load Balancer -->
+
+                <!-- Switch -->
+                <field resource="os_name" source-type="string" target="firmware" target-type="string"
+                       target-header="Switch" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="os_version" source-type="string" target="firmware_version" target-type="string"
+                       target-header="Switch" not-null="true" set-space="true" min-length="1" max-length="255"/>
+                <field resource="ip_address" type="string" target="ip_address"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <field resource="total_port_count" source-type="integer" target="ports" target-type="integer"
+                       target-header="Switch" not-null="true"/>
+                <field resource="hwaddress" type="string" target="mac_address"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <field resource="subnet_mask" type="string" target="subnet_mask"
+                       target-header="Switch" not-null="true" max-length="255"/>
+                <!-- ~Switch -->
             </mapping>
+            <unmapping callback="from_d42" key="name" source="Devices">
+                <field resource="network_device" source-type="boolean" display-name="Network Device"/>
+                <field resource="blade_chassis" source-type="boolean" display-name="Blade Chassis"/>
+            </unmapping>
             <d42url resource="device_pk" source-type="integer" url="{0}/admin/rackraj/device/{1}/" />
         </task>
 
@@ -251,7 +1100,7 @@
             <mapping callback="from_d42" key="name" source="Devices"/>
         </task>
 
-        <task enable="true" type="software" description="Copy Softwares from Device42 to FreshService using DOQL">
+        <task enable="true" name="Software" type="software" description="Copy Softwares from Device42 to FreshService using DOQL">
             <api>
                 <target model="applications" target="freshservice" method="POST" update_method="PUT" path="api/v2/applications" asset-type="Application"/>
                 <resource model="Softwares" target="device42" method="POST"
@@ -260,14 +1109,14 @@
                         />
             </api>
             <mapping callback="from_d42" key="name" source="Softwares">
-                <field resource="name" source-type="string" target="name" target-type="string" target-header="General" max-length="255"/>
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General" max-length="255" escape="true"/>
                 <field resource="notes" source-type="string" target="notes" target-type="string" target-header="General" max-length="2000"/>
                 <field resource="software_type" source-type="string" target="status" target-type="string"
                        target-header="General">
                     <value-mapping default="null">
                         <item key="managed" value="managed"/>
                         <item key="ignored" value="ignored"/>
-                        <item key="prohibited" value="blacklisted"/>
+                        <item key="prohibited" value="restricted"/>
                         <item key="unmanaged" value="ignored"/>
                     </value-mapping>
                 </field>
@@ -276,23 +1125,93 @@
             </mapping>
         </task>
 
-        <task enable="true" type="software_in_use" description="Create Software Install from Software In Use">
+        <task enable="true" name="Software In Use" type="software_in_use" description="Create Software Install from Software In Use" d42_min_version="16.19.00">
             <api>
                 <target model="applications" target="freshservice" method="POST" path="api/v2/applications/{id}/installations"/>
                 <resource model="Devices" target="device42" method="POST"
                           path="services/data/v1.0/query/"
-                          doql="select view_device_v1.name as device_name, trim(view_software_v1.name) as software_name,  view_softwareinuse_v1.install_date, view_softwareinuse_v1.version from view_softwareinuse_v1  left join view_software_v1 on software_fk=software_pk left join view_device_v1 on device_fk=device_pk where view_softwareinuse_v1.device_fk is not null"
-                        />
+                          doql="
+							WITH device as
+							(
+								SELECT
+                                    case
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'laptop' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'workstation' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'network printer' THEN 'Printer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'router' THEN 'Router'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'firewall' THEN 'Firewall'
+                                        WHEN lower(view_device_v2.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
+                                        WHEN view_device_v2.network_device THEN 'Switch'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v2.os_name) like '%server%' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(aix)%' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Computer'
+                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v2.virtual_host THEN 'Host'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'vmware' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'amazon ec2 instance' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'azure virtual machine' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v2.type) = 'physical' THEN 'Computer'
+                                        WHEN lower(view_device_v2.type) = 'virtual' THEN 'Virtual Machine'
+                                        ELSE 'Computer'
+                                    END as asset_type,
+									view_device_v2.device_pk,
+									view_device_v2.name,
+									view_device_v2.last_edited
+								FROM view_device_v2
+							)
+							select device.name as device_name, trim(view_software_v1.name) as software_name,  view_softwareinuse_v1.install_date, view_softwareinuse_v1.version from view_softwareinuse_v1
+							left join view_software_v1 on software_fk=software_pk inner join device on device_fk=device_pk
+							where (device.asset_type = 'Computer' or device.asset_type = 'Virtual Machine')
+						"/>
             </api>
             <mapping callback="from_d42" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
             </mapping>
         </task>
 
-        <task enable="true" type="affinity_group" description="Create Relationship from Affinity Groups">
+        <task enable="false" name="Software In Use" type="software_in_use" description="Create Software Install from Software In Use" d42_max_version="16.18.02">
             <api>
-                <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
+                <target model="applications" target="freshservice" method="POST" path="api/v2/applications/{id}/installations"/>
                 <resource model="Devices" target="device42" method="POST"
                           path="services/data/v1.0/query/"
+                          doql="
+							WITH device as
+							(
+								SELECT
+                                    case
+                                        WHEN lower(view_device_v1.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
+                                        WHEN view_device_v1.network_device THEN 'Switch'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v1.os_name) like '%server%' THEN 'Computer'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Computer'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(aix)%' THEN 'Computer'
+                                        WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Computer'
+                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v1.virtual_host THEN 'Host'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'vmware' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'amazon ec2 instance' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'azure virtual machine' THEN 'Virtual Machine'
+                                        WHEN lower(view_device_v1.type) = 'physical' THEN 'Computer'
+                                        WHEN lower(view_device_v1.type) = 'virtual' THEN 'Virtual Machine'
+                                        ELSE 'Computer'
+                                    END as asset_type,
+									view_device_v1.device_pk,
+									view_device_v1.name,
+									view_device_v1.last_edited
+								FROM view_device_v1
+							)
+							select device.name as device_name, trim(view_software_v1.name) as software_name,  view_softwareinuse_v1.install_date, view_softwareinuse_v1.version from view_softwareinuse_v1
+							left join view_software_v1 on software_fk=software_pk inner join device on device_fk=device_pk
+							where (device.asset_type = 'Computer' or device.asset_type = 'Virtual Machine')
+						"/>
+            </api>
+            <mapping callback="from_d42" key="dependent_device_name" device-name="device_name" software-name="software_name" install-date="install_date" version="version">
+            </mapping>
+        </task>
+
+        <task enable="true" name="Affinity Group Device To Device Relationships" type="affinity_group" description="Create Relationship from Affinity Groups">
+            <api>
+                <target model="assets" target="freshservice" method="POST"/>
+                <resource model="Devices" target="device42" method="POST"
                           doql="
                                 select df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name
                                 from view_deviceaffinity_v2 df1
@@ -308,10 +1227,9 @@
 
         <task enable="false" type="affinity_group" description="Delete Relationship from Affinity Groups">
             <api>
-                <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"
+                <target model="assets" target="freshservice" method="POST"
                         delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
                           doql="select distinct df1.dependent_device_fk, df1.dependent_device_name, df1.dependency_device_fk, df1.dependency_device_name from view_deviceaffinity_v2 df1 left outer join view_deviceaffinity_v2 df2 on df2.dependent_device_fk = df1.dependent_device_fk and df1.dependency_device_fk = df2.dependency_device_fk and df2.effective_to is null where df1.effective_to is not null and df1.dependent_device_fk is not null and df2.deviceaffinity_pk is null"
                         />
             </api>
@@ -319,11 +1237,10 @@
             </mapping>
         </task>
 
-        <task enable="true" type="business_app" description="Create Relationship from Business Apps">
+        <task enable="true" name="Business Application Device To Device Relationships" type="business_app" description="Create Relationship from Business Apps">
             <api>
-                <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json"/>
+                <target model="assets" target="freshservice" method="POST"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
                           doql="
                                 select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
                                        case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
@@ -343,9 +1260,8 @@
 
         <task enable="false" type="business_app" description="Delete Relationship from Business Apps">
             <api>
-                <target model="assets" target="freshservice" method="POST" path="cmdb/items/{id}/associate.json" delete="true"/>
+                <target model="assets" target="freshservice" method="POST" delete="true"/>
                 <resource model="Devices" target="device42" method="POST"
-                          path="services/data/v1.0/query/"
                           doql="
                                 select case connection_type when 'reversed' then be2.device_fk else be1.device_fk end as dependent_device_fk,
                                        case connection_type when 'reversed' then d2.name else d1.name end as dependent_device_name,
@@ -360,6 +1276,244 @@
                         />
             </api>
             <mapping callback="from_d42" key="dependent_device_name" downstream-relationship="Sends Data To" upstream-relationship="Receives Data From" target-key="dependency_device_name">
+            </mapping>
+        </task>
+
+        <task enable="true" name="Business Applications" description="Copy Business Application from Device42 to FreshService" d42_min_version="16.19.00">
+            <api>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"/>
+                <resource model="Businessapps" target="device42" method="POST"
+                          doql="
+                                select ba.businessapplication_pk, ba.name, ba.description, ba.criticality,
+                                    cus.name as customer_name, eu.email as owner_email,
+                                    'Business Service' as asset_type
+                                from view_businessapplication_v1 ba
+                                left join view_customer_v1 cus on ba.customer_fk = cus.customer_pk
+                                left join view_enduser_v1 eu on ba.business_app_owner_enduser_fk = eu.enduser_pk
+                               "
+                        />
+            </api>
+
+            <mapping callback="from_d42" key="name" source="Businessapps">
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248" escape="true"/>
+                <field resource="description" source-type="string" target="description" target-header="General"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+                <field resource="criticality" source-type="string" target="impact" target-type="string"
+                       target-header="General">
+                    <value-mapping default="low">
+                        <item key="Business Core" value="low"/>
+                        <item key="Business Essential" value="medium"/>
+                        <item key="Business Supporting" value="medium"/>
+                        <item key="Mission Critical" value="high"/>
+                    </value-mapping>
+                </field>
+                <field resource="customer_name" source-type="string" target="group_id" target-type="string"
+                       not-null="true" required="True"
+                       target-header="Assignment"
+                       target-foregin="groups" target-foregin-key="name" target-field="group_id"/>
+                <field resource="owner_email" source-type="string" target="user_id" target-type="string"
+                       target-header="Assignment"
+                       target-foregin="agents" target-foregin-key="email" target-field="user_id"/>
+            </mapping>
+            <unmapping callback="from_d42" key="name">
+            </unmapping>
+            <d42url resource="businessapplication_pk" source-type="integer" url="{0}/admin/rackraj/businessapp/{1}/" />
+        </task>
+
+        <task enable="false" name="Business Applications" description="Copy Business Application from Device42 to FreshService" d42_max_version="16.18.02">
+            <api>
+                <target model="assets" target="freshservice" method="POST" update_method="PUT" path="api/v2/assets"/>
+                <resource model="Businessapps" target="device42" method="POST"
+                          doql="
+                                select ba.businessapplication_pk, ba.name,
+                                    'Business Service' as asset_type
+                                from view_businessapplication_v1 ba
+                               "
+                        />
+            </api>
+
+            <mapping callback="from_d42" key="name" source="Businessapps">
+                <field resource="name" source-type="string" target="name" target-type="string" target-header="General"
+                       set-space="true" min-length="1" max-length="248" escape="true"/>
+            </mapping>
+            <unmapping callback="from_d42" key="name">
+            </unmapping>
+            <d42url resource="businessapplication_pk" source-type="integer" url="{0}/admin/rackraj/businessapp/{1}/" />
+        </task>
+
+        <task enable="true" name="Business Application To Device Relationships" type="business_app" description="Create Relationship from Devices to Business Apps">
+            <api>
+                <target model="assets" target="freshservice" method="POST"/>
+                <resource model="Devices" target="device42" method="POST"
+                          doql="
+                                select ba.name as business_app_name, device.name as device_name
+                                from view_businessapplication_v1 ba
+                                join view_businessapplicationelement_v1 bae on ba.businessapplication_pk = bae.businessapplication_fk
+                                join view_device_v1 device on bae.device_fk = device.device_pk
+                               "
+                        />
+            </api>
+            <mapping callback="from_d42" key="business_app_name" downstream-relationship="Hosted On" upstream-relationship="Hosts" target-key="device_name">
+            </mapping>
+        </task>
+
+        <task enable="true" name="Contracts" type="contracts" description="Copy contract info from Device42 to FreshService">
+            <api>
+                <target model="contracts" target="freshservice" method="POST" update_method="PUT" path="api/v2/contracts" asset-type="Contracts"/>
+                <resource target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="
+                            select plid.device_name, v.name vendor_name,
+                                v.name || '-' || p.order_no || '-' || pli.line_no as name,
+                                case
+                                    WHEN lower(pli.contract_type_name) = 'warranty' THEN 'Warranty'
+                                    WHEN lower(pli.contract_type_name) in ('base', 'upgrade') and lower(v.name) in ('ibm', 'lenovo') THEN 'Warranty'
+                                    WHEN lower(pli.contract_type_name) = 'lease' THEN 'Lease'
+                                    ELSE 'Maintenance'
+                                end as contract_type_name,
+                                pli.contract_id, pli.cost, pli.start_date, pli.end_date
+                            from view_purchaselineitems_to_devices_v1 plid
+                            inner join view_purchaselineitem_v1 pli on plid.purchaselineitem_fk = pli.purchaselineitem_pk
+                            inner join view_purchase_v1 p on pli.purchase_fk = p.purchase_pk
+                            inner join view_vendor_v1 v on p.vendor_fk = v.vendor_pk
+                            where lower(pli.line_type) = 'contract' and pli.start_date is not null and pli.end_date is not null
+                            "
+                        />
+            </api>
+            <mapping callback="from_d42" key="name">
+                <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
+                <field resource="name" source-type="string" target="contract_number" target-type="string" max-length="255" escape="true"/>
+                <field resource="vendor_name" source-type="string" target="vendor_id" target-type="string"
+                       target-foregin="vendors" target-foregin-key="name" max-length="255" not-null="true" />
+                <field resource="contract_type_name" source-type="string" target="contract_type_id" target-type="string"
+                       target-foregin="contract_types" target-foregin-key="name">
+                    <value-mapping default="Maintenance">
+                        <item key="Lease" value="Lease"/>
+                        <item key="Warranty" value="Warranty"/>
+                        <item key="Maintenance" value="Maintenance"/>
+                    </value-mapping>
+                </field>
+                <field resource="cost" source-type="float" target="cost" not-null="true" target-type="float" not-zero="true" />
+                <field resource="start_date" source-type="string" target="start_date" />
+                <field resource="end_date" source-type="string" target="end_date" />
+            </mapping>
+        </task>
+
+        <task enable="true" name="Device Contract Associations" type="contract_in_asset" description="Create association between asset and contract">
+            <api>
+                <target model="contracts" target="freshservice" method="POST" path="api/v2/contracts/{id}/associated-assets"/>
+                <resource model="contracts" target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="
+                            select plid.device_name,
+                                v.name || '-' || p.order_no || '-' || pli.line_no as contract_name
+                            from view_purchaselineitems_to_devices_v1 plid
+                            inner join view_purchaselineitem_v1 pli on plid.purchaselineitem_fk = pli.purchaselineitem_pk
+                            inner join view_purchase_v1 p on pli.purchase_fk = p.purchase_pk
+                            inner join view_vendor_v1 v on p.vendor_fk = v.vendor_pk
+                            where lower(pli.line_type) = 'contract' and
+                                pli.start_date is not null and pli.end_date is not null
+                            "
+                        />
+            </api>
+            <mapping callback="from_d42" device-name="device_name" contract-name="contract_name">
+            </mapping>
+        </task>
+
+        <task enable="true" name="Software Licensing" type="contracts" description="Copy Software Licensing info from Device42 to FreshService">
+            <api>
+                <target model="contracts" target="freshservice" method="POST" update_method="PUT" path="api/v2/contracts" asset-type="Contracts"/>
+                <resource target="device42" method="POST"
+                          path="services/data/v1.0/query/"
+                          doql="
+                            select 	case when p.order_no is null then s.name else s.name || '-' || p.order_no || '-' || pli.line_no end as name,
+                                    'Software License' as contract_type_name,
+                                    case when v.name is not null then v.name else sv.name end vendor_name,
+                                    pli.cost unit_cost, pli.start_date, pli.end_date,
+                                    s.name software_name,
+                                    case when pli.quantity is not null then pli.quantity else s.licensed_count end licensed_count,
+                                    case when pli.quantity is not null then pli.quantity else s.licensed_count end * pli.cost as cost,
+                                    pli.contract_id,
+                                    case when slm.is_free = true then 'Free' else 'Volume' end license_type,
+                                    pli.frequency,
+                                    'per_unit' as pricing_model,
+                                    case when pli.notes is not null and pli.notes &lt;&gt; '' then pli.notes else s.notes end as notes
+                            from view_software_v1 s
+                            left outer join view_softwarelicensemodel_v1 slm on s.softwarelicensemodel_fk = slm.softwarelicensemodel_pk
+                            left outer join view_purchaselineitems_to_softwares_v1 plis on s.software_pk = plis.software_fk
+                            left outer join view_purchaselineitem_v1 pli on plis.purchaselineitem_fk = pli.purchaselineitem_pk
+                            left outer join view_purchase_v1 p on pli.purchase_fk = p.purchase_pk
+                            left outer join view_vendor_v1 v on p.vendor_fk = v.vendor_pk
+                            left outer join view_vendor_v1 sv on s.vendor_fk = sv.vendor_pk
+                            WHERE
+                                lower(s.software_type) = 'managed' and
+                                (pli.purchaselineitem_pk is not null or s.licensed_count is not null) and
+                                (v.name is not null or sv.name is not null)
+                            "
+                        />
+            </api>
+            <mapping callback="from_d42" key="name">
+                <field resource="name" source-type="string" target="name" target-type="string" max-length="255" escape="true"/>
+                <field resource="name" source-type="string" target="contract_number" target-type="string" max-length="255" escape="true"/>
+                <field resource="vendor_name" source-type="string" target="vendor_id" target-type="string"
+                       target-foregin="vendors" target-foregin-key="name" max-length="255" not-null="true" />
+                <field resource="contract_type_name" source-type="string" target="contract_type_id" target-type="string"
+                       target-foregin="contract_types" target-foregin-key="name" />
+                <field resource="software_name" source-type="string" target="software_id" target-type="string"
+                       target-foregin="applications" target-foregin-key="name" escape="true"/>
+                <field resource="cost" source-type="float" target="cost" not-null="true" target-type="float" not-zero="true"/>
+                <field resource="start_date" source-type="string" target="start_date" />
+                <field resource="end_date" source-type="string" target="end_date" />
+                <field resource="frequency" source-type="string" target="billing_cycle" target-type="string">
+                    <value-mapping default="one_time">
+                        <item key="one time" value="one_time"/>
+                        <item key="monthly" value="monthly"/>
+                        <item key="quarterly" value="quarterly"/>
+                        <item key="bi-annually" value="six_month"/>
+                        <item key="annually" value="annual"/>
+                        <item key="2years" value="annual"/>
+                        <item key="3years" value="annual"/>
+                        <item key="4years" value="annual"/>
+                        <item key="5years" value="annual"/>
+                    </value-mapping>
+                </field>
+                <field resource="unit_cost" source-type="float"
+                       target="item_cost_details" not-null="true" target-type="float"
+                       target-sub-key="cost"
+                       not-zero="true"/>
+                <field resource="pricing_model" source-type="string"
+                       target="item_cost_details" target-sub-key="pricing_model"/>
+                <field resource="licensed_count" source-type="integer"
+                       target="item_cost_details" target-type="integer"
+                       target-sub-key="count"
+                       not-null="true"/>
+                <field resource="notes" source-type="string" target="item_cost_details"
+                       target-sub-key="comments"
+                       not-null="true" set-space="true" min-length="1" max-length="60000"/>
+            </mapping>
+        </task>
+
+        <task enable="true" name="Create relationship between Host and Virtual Machine" type="business_app" description="Create relationship between Host and Virtual Machine">
+            <api>
+                <target model="assets" target="freshservice" method="POST"/>
+                <resource model="Devices" target="device42" method="POST"
+                          doql="
+								WITH
+                                    host_device AS (
+                                        select device_pk, name from view_device_v1 where view_device_v1.virtual_host )
+
+                                    ,vm_device as ( select device_pk, name, virtual_host_device_fk from view_device_v1 where lower(view_device_v1.type) = 'virtual')
+
+                                select
+                                    host_device.device_pk as dependent_device_fk,
+                                    host_device.name as dependent_device_name,
+                                    vm_device.device_pk as dependency_device_fk,
+                                    vm_device.name as dependency_device_name
+                                from host_device inner join vm_device on host_device.device_pk = vm_device.virtual_host_device_fk"
+                        />
+            </api>
+            <mapping callback="from_d42" key="dependent_device_name" downstream-relationship="Virtualized by" upstream-relationship="Virtualizes" target-key="dependency_device_name">
             </mapping>
         </task>
     </tasks>

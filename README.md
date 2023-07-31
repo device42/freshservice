@@ -1,7 +1,7 @@
 [Device42](http://www.device42.com/) is a Continuous Discovery software for your IT Infrastructure. It helps you automatically maintain an up-to-date inventory of your physical, virtual, and cloud servers and containers, network components, software/services/applications, and their inter-relationships and inter-dependencies.
 
 
-This repository contains script that helps you sync data from Device42 to FreshService.
+This repository contains script that helps you sync data from Device42 to Freshservice.
 
 ### Download and Installation
 -----------------------------
@@ -44,26 +44,26 @@ Once the packages are installed and the script is configured, the script can be 
 
 ### Configuration
 -----------------------------
-Prior to using the script, it must be configured to connect to your Device42 instance and your FreshService instance.
+Prior to using the script, it must be configured to connect to your Device42 instance and your Freshservice instance.
 * Save a copy of mapping.xml.sample as mapping.xml. 
-* Enter your URL, User, Password, API Key in the FreshService and Device42 sections (lines 2-10).
-API Key can be obtained from FreshService profile page
+* Enter your URL, User, Password, API Key, and default approver email address in the Freshservice and Device42 sections (lines 2-11).
+API Key can be obtained from Freshservice profile page
 
 Below the credential settings, you’ll see a Tasks section. 
-Multiple Tasks can be setup to synchronize various CIs from Device42 to FreshService.
+Multiple Tasks can be setup to synchronize various CIs from Device42 to Freshservice.
 In the <api> section of each task, there will be a <resource> section that queries Device42 to obtain the desired CIs. 
 Full documentation of the Device42 API and endpoints is available at https://api.device42.com. 
 Individual tasks within a mapping.xml file can be enabled or disabled at will by changing the `enable="true"` to `enable="false"` in the <task> section.
 
-Once the Device42 API resource and FreshService Target are entered, the <mapping> section is where fields from Device42 (the `resource` value) can be mapped to fields in FreshService (the `target` value).
+Once the Device42 API resource and Freshservice Target are entered, the <mapping> section is where fields from Device42 (the `resource` value) can be mapped to fields in Freshservice (the `target` value).
 It is very important to adjust the list of default values in accordance between freshservice and device 42 (for example, service_level).
 
 After configuring the fields to map as needed, the script should be ready to run. 
 
 ### Gotchas
 -----------------------------
-* FreshService API Limit is 1000 calls per hour (https://api.freshservice.com/#ratelimit)
-* Due to the nature of FreshService rate limits, large inventories may take extended periods of time to migrate
+* Freshservice API Limit is 1000 calls per hour (https://api.freshservice.com/#ratelimit)
+* Due to the nature of Freshservice rate limits, large inventories may take extended periods of time to migrate
 
 Please use the following table as a reference only, actual times may vary due to request limit cooldowns and other internal API calls
 
@@ -82,7 +82,7 @@ Please use the following table as a reference only, actual times may vary due to
 
 ### Info
 -----------------------------
-* mapping.xml - file from where we get fields relations between D42 and FreshService
+* mapping.xml - file from where we get fields relations between D42 and Freshservice
 * devicd42.py - file with integration device42 instance
 * freshservice.py - file with integration freshservice instance
 * d42_sd_sync.py - initialization and processing file, where we prepare API calls
