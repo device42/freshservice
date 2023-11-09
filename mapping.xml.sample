@@ -1513,7 +1513,7 @@
                                 from host_device inner join vm_device on host_device.device_pk = vm_device.virtual_host_device_fk"
                         />
             </api>
-            <mapping callback="from_d42" key="dependent_device_name" downstream-relationship="Virtualized by" upstream-relationship="Virtualizes" target-key="dependency_device_name">
+            <mapping callback="from_d42" key="dependency_device_name" downstream-relationship="Virtualized by" upstream-relationship="Virtualizes" target-key="dependent_device_name">
             </mapping>
         </task>
     </tasks>

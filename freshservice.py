@@ -375,9 +375,9 @@ class FreshService(object):
 
     def get_objects_map(self, source_url, model, foregin_key="name"):
         objects = self.request(source_url, "GET", model)
-        # Return a dictionary where the key is the lowercase name of the object and the value is
-        # the basic object (e.g. id, name, etc.).
-        return {self.normalize_value(obj[foregin_key]).lower(): self.create_basic_object(obj) for obj in objects}
+        # Return a dictionary where the key is the lowercase name of the object (usually, but could be any other property
+        # of the object like the display id) and the value is the basic object (e.g. id, name, etc.).
+        return {self.normalize_value(obj[foregin_key]).lower() if isinstance(obj[foregin_key], str) else obj[foregin_key]: self.create_basic_object(obj) for obj in objects}
 
     def get_relationship_type_by_content(self, downstream, upstream):
         path = "/api/v2/relationship_types"

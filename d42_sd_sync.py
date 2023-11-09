@@ -599,6 +599,13 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
     source_count = len(sources)
     submitted_jobs = list()
 
+    is_virtualized_by_rel_type = False
+    if relationship_type["downstream_relation"] == "Virtualized by" and relationship_type["upstream_relation"] == "Virtualizes":
+        is_virtualized_by_rel_type = True
+
+    # This will be used for deleting the incorrect Virtualized by/Virtualizes relationships.
+    assets_by_display_id = None
+
     for idx, source in enumerate(sources):
         try:
             logger.info("Processing %s - %s." % (source[mapping["@key"]], source[mapping["@target-key"]]))
@@ -624,7 +631,42 @@ def create_relationships_from_affinity_group(sources, _target, mapping):
 
                 for relationship in relationships:
                     if relationship["relationship_type_id"] == relationship_type["id"]:
-                        relationships_map[primary_asset_display_id].add(relationship["secondary_id"])
+                        deleted_relationship = False
+                        # We used to created Virtualized by/Virtualizes relationships incorrectly.  It would read
+                        # as the host is virtualized by the VM and the VM virtualizes the host.  This was wrong.
+                        # It should read as the VM is virtualized by the host and the host virtualizes the VM.
+                        # We will delete these incorrect relationships and the correct ones will be created if
+                        # they do not exist.
+                        if is_virtualized_by_rel_type:
+                            if assets_by_display_id is None:
+                                # Get both active assets (i.e. those assets that are not in the trash) and trashed
+                                # assets (i.e. those assets that have been deleted and moved to the trash).
+                                # We get the trashed assets because there could be incorrect relationships
+                                # where the host has been deleted and moved to the trash, but the VM is active.
+                                # The key for this dictionary will be the display id since this is what the
+                                # relationships returned from the Freshservice API use (i.e. the display id for
+                                # the primary and secondary assets in the relationship).
+                                assets_by_display_id = {v["display_id"]: v for k, v in existing_objects_map.items()}
+                                # For the key of the dictionary that gets returned, we will use the display id.  We cannot
+                                # use the asset name as the key because multiple assets in the trash could have the same
+                                # name and this would result in only one of those assets with the same name being in
+                                # the dictionary since they would each be using the same key.  Even though these assets
+                                # would have the same name, they would have different display ids.  In addition, an
+                                # asset in the trash could have the same name as an active asset.
+                                trashed_assets = freshservice.get_objects_map("api/v2/assets?trashed=true", "assets", "display_id")
+                                assets_by_display_id.update(trashed_assets)
+
+                            # For the incorrect relationships, a host asset would have been the primary asset in the
+                            # relationship.
+                            if relationship["primary_id"] in assets_by_display_id:
+                                pri = assets_by_display_id[relationship["primary_id"]]
+                                if pri["asset_type_id"] in [fs_cache["asset_types"]["host"]["id"], fs_cache["asset_types"]["vmware vcenter host"]["id"]]:
+                                    freshservice.detach_relationship(relationship["id"])
+                                    logger.info("deleted incorrect Virtualized by/Virtualizes relationship %d" % relationship["id"])
+                                    deleted_relationship = True
+
+                        if not deleted_relationship:
+                            relationships_map[primary_asset_display_id].add(relationship["secondary_id"])
 
             exist = secondary_asset["display_id"] in relationships_map[primary_asset_display_id]
             if exist:
