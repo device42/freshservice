@@ -187,6 +187,8 @@
 
                                 select view_device_v2.*,
                                     case
+                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v2.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'laptop' THEN 'Laptop'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'workstation' THEN 'Desktop'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'network printer' THEN 'Printer'
@@ -198,8 +200,6 @@
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Unix Server'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(aix)%' THEN 'AIX Server'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Solaris Server'
-                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
-                                        WHEN view_device_v2.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'vmware' THEN 'VMware VCenter VM'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'amazon ec2 instance' THEN 'AWS VM'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'azure virtual machine' THEN 'Azure VM'
@@ -716,14 +716,14 @@
 
                                 select view_device_v1.*,
                                     case
+                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v1.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v1.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
                                         WHEN view_device_v1.network_device THEN 'Switch'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v1.os_name) like '%server%' THEN 'Windows Server'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Unix Server'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(aix)%' THEN 'AIX Server'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Solaris Server'
-                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
-                                        WHEN view_device_v1.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'vmware' THEN 'VMware VCenter VM'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'amazon ec2 instance' THEN 'AWS VM'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'azure virtual machine' THEN 'Azure VM'
@@ -1135,6 +1135,8 @@
 							(
 								SELECT
                                     case
+                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v2.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'laptop' THEN 'Computer'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'workstation' THEN 'Computer'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.physicalsubtype) = 'network printer' THEN 'Printer'
@@ -1146,8 +1148,6 @@
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Computer'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(aix)%' THEN 'Computer'
                                         WHEN lower(view_device_v2.type) = 'physical' AND lower(view_device_v2.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Computer'
-                                        WHEN view_device_v2.virtual_host AND lower(view_device_v2.os_name) like '%esxi%' THEN 'VMware VCenter Host'
-                                        WHEN view_device_v2.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'vmware' THEN 'Virtual Machine'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'amazon ec2 instance' THEN 'Virtual Machine'
                                         WHEN lower(view_device_v2.type) = 'virtual' AND lower(view_device_v2.virtualsubtype) = 'azure virtual machine' THEN 'Virtual Machine'
@@ -1179,14 +1179,14 @@
 							(
 								SELECT
                                     case
+                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
+                                        WHEN view_device_v1.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v1.os_name) similar to '%(f5|netscaler)%' THEN 'Load Balancer'
                                         WHEN view_device_v1.network_device THEN 'Switch'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(windows|microsoft)%' AND lower(view_device_v1.os_name) like '%server%' THEN 'Computer'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(unix|z/os|z os|zos|hp-ux|os400|os/400|os 400|linux|amazon|ubuntu|centos|redhat|debian|sles|suse|gentoo|oracle|freebsd|rhel|red hat|fedora|alma|rocky|arch)%' THEN 'Computer'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(aix)%' THEN 'Computer'
                                         WHEN lower(view_device_v1.type) = 'physical' AND lower(view_device_v1.os_name) similar to '%(solaris|sunos|sun os)%' THEN 'Computer'
-                                        WHEN view_device_v1.virtual_host AND lower(view_device_v1.os_name) like '%esxi%' THEN 'VMware VCenter Host'
-                                        WHEN view_device_v1.virtual_host THEN 'Host'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'vmware' THEN 'Virtual Machine'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'amazon ec2 instance' THEN 'Virtual Machine'
                                         WHEN lower(view_device_v1.type) = 'virtual' AND lower(view_device_v1.virtual_subtype) = 'azure virtual machine' THEN 'Virtual Machine'
