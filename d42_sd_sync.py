@@ -29,6 +29,9 @@ RELATIONSHIPS_CREATED_PER_SECOND = 4
 RELATIONSHIPS_JOB_WAIT_SECONDS = int(math.ceil(RELATIONSHIP_BATCH_SIZE / float(RELATIONSHIPS_CREATED_PER_SECOND)))
 ASSET_TYPE_BUSINESS_SERVICE = "Business Service"
 ASSET_TYPE_SERVER = "Server"
+ASSET_TYPE_UNIX_SERVER = "Unix Server"
+ASSET_TYPE_WINDOWS_SERVER = "Windows Server"
+ASSET_TYPE_HOST = "Host"
 
 parser = argparse.ArgumentParser(description="freshservice")
 
@@ -227,14 +230,25 @@ def update_objects_from_server(sources, _target, mapping):
 
     asset_type_fields_map = dict()
     server_asset_type_id = find_object_id_in_map(asset_types_map, ASSET_TYPE_SERVER)
+    unix_server_asset_type_id = find_object_id_in_map(asset_types_map, ASSET_TYPE_UNIX_SERVER)
+    windows_server_asset_type_id = find_object_id_in_map(asset_types_map, ASSET_TYPE_WINDOWS_SERVER)
+    host_asset_type_id = find_object_id_in_map(asset_types_map, ASSET_TYPE_HOST)
 
     for source in sources:
         error_skip = False
         while True:
             try:
                 existing_object = find_object_in_map(existing_objects_map, source["name"])
-                if existing_object is None or existing_object["asset_type_id"] == server_asset_type_id:
-                    asset_type_id = find_object_id_in_map(asset_types_map, source["asset_type"])
+                source_asset_type_id = find_object_id_in_map(asset_types_map, source["asset_type"])
+
+                # If we have an existing asset with an asset type of Windows Server or Unix Server and
+                # we determined that the asset type should be Host, we will update it to Host since previously
+                # we were bringing in host devices as Windows Server or Unix Server asset types instead of the
+                # Host asset type.
+                if existing_object is None or existing_object["asset_type_id"] == server_asset_type_id or \
+                   (existing_object["asset_type_id"] in [unix_server_asset_type_id, windows_server_asset_type_id] and \
+                   source_asset_type_id == host_asset_type_id):
+                    asset_type_id = source_asset_type_id
                 else:
                     asset_type_id = existing_object["asset_type_id"]
 
@@ -363,6 +377,9 @@ def update_objects_from_server(sources, _target, mapping):
                         data["agent_id"] = existing_object["agent_id"]
                     updated_asset_id = freshservice.update_asset(data, existing_object["display_id"])
                     logger.info("updated existing asset %d" % updated_asset_id)
+                    # If the asset type changed for this asset, update it in the cache.
+                    if existing_object["asset_type_id"] != asset_type_id:
+                        existing_object["asset_type_id"] = asset_type_id
 
                 break
             except FreshServiceDuplicateValueError:
